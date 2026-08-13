@@ -1,5 +1,103 @@
 'use client';
-import {useEffect,useState} from 'react';
-function Login({done}){const[pin,setPin]=useState('');const[e,setE]=useState('');async function go(x){x.preventDefault();const r=await fetch('/api/auth/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({pin})});const j=await r.json();if(!r.ok||j.role!=='manager'){setE('Manager PIN required.');return}done()}return <main className="page"><div className="card" style={{maxWidth:380,margin:'80px auto'}}><h1>Manager Login</h1>{e&&<div className="error">{e}</div>}<form onSubmit={go}><div className="field"><label>PIN</label><input type="password" inputMode="numeric" value={pin} onChange={x=>setPin(x.target.value)}/></div><button className="btn brand" style={{width:'100%',marginTop:12}}>SIGN IN</button></form></div></main>}
-export default function Manager(){const[auth,setAuth]=useState(true);const[data,setData]=useState(null);const[tab,setTab]=useState('overview');const[err,setErr]=useState('');const[msg,setMsg]=useState('');const[cool,setCool]=useState(5);const[newItem,setNewItem]=useState({name:'',display_name:'',portion_label:'1 skewer',max_per_round:2,sort_order:100});const[newTable,setNewTable]=useState('');async function load(){const r=await fetch('/api/manager/dashboard',{cache:'no-store'});const j=await r.json();if(r.status===401){setAuth(false);return}if(!r.ok){setErr(j.error);return}setAuth(true);setData(j);setCool(j.settings?.skewer_cooldown_minutes??5)}useEffect(()=>{load()},[]);async function act(body){setErr('');setMsg('');const r=await fetch('/api/manager/dashboard',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const j=await r.json();if(!r.ok){setErr(j.error);return false}setMsg('Saved.');await load();return true}if(!auth)return <Login done={load}/>;if(!data)return <main className="page">Loading…</main>;return <><div className="topbar"><div className="logo">MEAT HOUSE<small>MANAGER CONTROL</small></div><span className="spacer"/><a className="btn secondary small" href="/staff">Staff</a><a className="btn secondary small" href="/kitchen">Kitchen</a><a className="btn secondary small" href="/manager/qr">QR</a><button className="btn secondary small" onClick={async()=>{await fetch('/api/auth/logout',{method:'POST'});setAuth(false)}}>Logout</button></div><main className="page"><section className="hero"><h1>Manager Control</h1><p>Skewer ordering, tables, security and performance.</p></section>{err&&<div className="error" style={{marginTop:12}}>{err}</div>}{msg&&<div className="notice" style={{marginTop:12}}>{msg}</div>}<div className="actions" style={{marginTop:16}}>{['overview','products','tables','settings','security'].map(x=><button key={x} className={`btn ${tab===x?'brand':'secondary'}`} onClick={()=>setTab(x)}>{x.toUpperCase()}</button>)}</div>{tab==='overview'&&<div className="grid grid-3" style={{marginTop:16}}><div className="card"><div className="muted">Sessions · last 7 days</div><b style={{fontSize:30}}>{data.analytics.sessions}</b></div><div className="card"><div className="muted">Guests</div><b style={{fontSize:30}}>{data.analytics.guests}</b></div><div className="card"><div className="muted">Skewers ordered</div><b style={{fontSize:30}}>{data.analytics.skewers}</b></div><div className="card"><div className="muted">Orders</div><b style={{fontSize:30}}>{data.analytics.orders}</b></div><div className="card" style={{gridColumn:'span 2'}}><h3 style={{marginTop:0}}>Top Skewers</h3>{data.analytics.top_items?.map((x,i)=><div key={i} className="actions" style={{padding:'6px 0',borderBottom:'1px solid var(--line)'}}><span>{x.name}</span><span className="spacer"/><b>{x.qty}</b></div>)}</div></div>}{tab==='products'&&<><div className="card" style={{marginTop:16}}><h3>Add Product</h3><div className="grid grid-3"><div className="field"><label>Internal Name</label><input value={newItem.name} onChange={e=>setNewItem({...newItem,name:e.target.value})}/></div><div className="field"><label>Customer Name</label><input value={newItem.display_name} onChange={e=>setNewItem({...newItem,display_name:e.target.value})}/></div><div className="field"><label>Max / Round</label><input type="number" value={newItem.max_per_round} onChange={e=>setNewItem({...newItem,max_per_round:Number(e.target.value)})}/></div></div><button className="btn brand" style={{marginTop:12}} onClick={async()=>{if(await act({type:'menu',action:'add',payload:newItem}))setNewItem({name:'',display_name:'',portion_label:'1 skewer',max_per_round:2,sort_order:100})}}>ADD PRODUCT</button></div><div style={{display:'grid',gap:8,marginTop:14}}>{data.menu.map(x=><div className="card" key={x.id}><div className="actions"><b>{x.display_name||x.name}</b><span className={`badge ${x.active?'available':''}`}>{x.active?'ACTIVE':'HIDDEN'}</span><span className="spacer"/><button className="btn secondary small" onClick={()=>act({type:'menu',action:x.active?'disable':'restore',item_id:x.id,payload:{}})}>{x.active?'Hide':'Restore'}</button></div></div>)}</div></>}{tab==='tables'&&<><div className="card" style={{marginTop:16}}><div className="actions"><div className="field" style={{flex:1}}><label>New Table Name</label><input value={newTable} onChange={e=>setNewTable(e.target.value)}/></div><button className="btn brand" onClick={async()=>{if(await act({type:'table',action:'add',name:newTable,capacity:6}))setNewTable('')}}>ADD TABLE</button></div></div><div className="grid grid-3" style={{marginTop:14}}>{data.tables.map(t=><div className="card" key={t.id}><div className="actions"><b>{t.name}</b><span className={`badge ${t.active?'available':''}`}>{t.active?'ACTIVE':'HIDDEN'}</span><span className="spacer"/><button className="btn secondary small" onClick={()=>act({type:'table',action:t.active?'disable':'restore',table_id:t.id})}>{t.active?'Disable':'Restore'}</button></div></div>)}</div></>}{tab==='settings'&&<div className="card" style={{marginTop:16,maxWidth:560}}><h2>Skewer Reorder Cooldown</h2><p className="muted">Default 5 minutes. Manager can still unlock an individual table from Staff Dashboard.</p><div className="field"><label>Minutes</label><input type="number" min="0" max="15" value={cool} onChange={e=>setCool(Number(e.target.value))}/></div><button className="btn brand" style={{marginTop:12}} onClick={()=>act({type:'settings',skewer_cooldown_minutes:cool})}>SAVE SETTINGS</button></div>}{tab==='security'&&<div className="grid grid-3" style={{marginTop:16}}>{['staff','kitchen','manager'].map(role=><PinCard key={role} role={role} act={act}/>)}</div>}</main></>}
-function PinCard({role,act}){const[pin,setPin]=useState('');return <div className="card"><h3>{role.toUpperCase()} PIN</h3><div className="field"><label>New PIN</label><input type="password" inputMode="numeric" value={pin} onChange={e=>setPin(e.target.value)}/></div><button className="btn brand" style={{marginTop:12}} onClick={async()=>{if(await act({type:'pin',role,pin}))setPin('')}}>CHANGE PIN</button></div>}
+
+import { useEffect, useState } from 'react';
+
+function Login({ done }) {
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState('');
+  async function submit(e) {
+    e.preventDefault();
+    const r = await fetch('/api/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pin }) });
+    const j = await r.json();
+    if (!r.ok || j.role !== 'manager') return setError('Manager PIN required.');
+    done();
+  }
+  return <main className="page"><div className="card" style={{ maxWidth: 380, margin: '80px auto' }}><h1>Manager Login</h1>{error && <div className="error">{error}</div>}<form onSubmit={submit}><div className="field"><label>PIN</label><input type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value)} /></div><button className="btn brand" style={{ width: '100%', marginTop: 12 }}>SIGN IN</button></form></div></main>;
+}
+
+function PinCard({ role, act }) {
+  const [pin, setPin] = useState('');
+  return <div className="card"><h3>{role.toUpperCase()} PIN</h3><div className="field"><label>New PIN</label><input type="password" inputMode="numeric" value={pin} onChange={e => setPin(e.target.value)} /></div><button className="btn brand" style={{ marginTop: 12 }} onClick={async () => { if (await act({ type: 'pin', role, pin })) setPin(''); }}>CHANGE PIN</button></div>;
+}
+
+export default function Manager() {
+  const [auth, setAuth] = useState(true);
+  const [data, setData] = useState(null);
+  const [tab, setTab] = useState('overview');
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [cooldown, setCooldown] = useState(5);
+  const [newItem, setNewItem] = useState({ name: '', display_name: '', description: '', portion_label: '1 skewer', max_per_round: 2, sort_order: 100 });
+  const [newTable, setNewTable] = useState('');
+  const today = new Date().toISOString().slice(0, 10);
+  const weekAgo = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  const [from, setFrom] = useState(weekAgo);
+  const [to, setTo] = useState(today);
+
+  async function load(rangeFrom = from, rangeTo = to) {
+    const fromIso = new Date(`${rangeFrom}T00:00:00+10:00`).toISOString();
+    const toIso = new Date(new Date(`${rangeTo}T00:00:00+10:00`).getTime() + 86400000).toISOString();
+    const r = await fetch(`/api/manager/dashboard?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(toIso)}`, { cache: 'no-store' });
+    const j = await r.json();
+    if (r.status === 401) { setAuth(false); return; }
+    if (!r.ok) return setError(j.error || 'Unable to load manager data.');
+    setAuth(true); setData(j); setCooldown(j.settings?.skewer_cooldown_minutes ?? 5);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function act(body) {
+    setError(''); setMessage('');
+    const r = await fetch('/api/manager/dashboard', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await r.json();
+    if (!r.ok) { setError(j.error || 'Update failed.'); return false; }
+    setMessage('Saved.'); await load(); return true;
+  }
+
+  function editProduct(item) {
+    const name = prompt('Kitchen / internal name', item.name); if (name === null) return;
+    const display_name = prompt('Customer display name', item.display_name || item.name); if (display_name === null) return;
+    const description = prompt('Description', item.description || ''); if (description === null) return;
+    const portion_label = prompt('Portion label', item.portion_label || '1 skewer'); if (portion_label === null) return;
+    const max_per_round = Number(prompt('Max per order', item.max_per_round)); if (!Number.isFinite(max_per_round)) return;
+    const sort_order = Number(prompt('Sort order', item.sort_order)); if (!Number.isFinite(sort_order)) return;
+    act({ type: 'menu', action: 'update', item_id: item.id, payload: { name, display_name, description, portion_label, max_per_round, sort_order } });
+  }
+
+  function editTable(table) {
+    const name = prompt('Table name', table.name); if (name === null) return;
+    const capacity = Number(prompt('Capacity', table.capacity)); if (!Number.isFinite(capacity)) return;
+    act({ type: 'table', action: 'update', table_id: table.id, name, capacity });
+  }
+
+  if (!auth) return <Login done={() => load()} />;
+  if (!data) return <main className="page">Loading…</main>;
+
+  return <>
+    <div className="topbar"><div className="logo">MEAT HOUSE<small>MANAGER CONTROL</small></div><span className="spacer"/><a className="btn secondary small" href="/staff">Staff</a><a className="btn secondary small" href="/kitchen">Kitchen</a><a className="btn secondary small" href="/manager/qr">QR</a><button className="btn secondary small" onClick={async () => { await fetch('/api/auth/logout', { method: 'POST' }); setAuth(false); }}>Logout</button></div>
+    <main className="page">
+      <section className="hero"><h1>Manager Control</h1><p>Skewer ordering, tables, security and performance.</p></section>
+      {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
+      {message && <div className="notice" style={{ marginTop: 12 }}>{message}</div>}
+      <div className="actions" style={{ marginTop: 16 }}>{['overview', 'products', 'tables', 'settings', 'security'].map(x => <button key={x} className={`btn ${tab === x ? 'brand' : 'secondary'}`} onClick={() => setTab(x)}>{x.toUpperCase()}</button>)}</div>
+
+      {tab === 'overview' && <>
+        <div className="card" style={{ marginTop: 16 }}><div className="actions"><div className="field"><label>From</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} /></div><div className="field"><label>To</label><input type="date" value={to} onChange={e => setTo(e.target.value)} /></div><button className="btn brand" onClick={() => load(from, to)}>RUN REPORT</button></div></div>
+        <div className="grid grid-3" style={{ marginTop: 16 }}><div className="card"><div className="muted">Sessions</div><b style={{ fontSize: 30 }}>{data.analytics.sessions}</b></div><div className="card"><div className="muted">Guests</div><b style={{ fontSize: 30 }}>{data.analytics.guests}</b></div><div className="card"><div className="muted">Skewers ordered</div><b style={{ fontSize: 30 }}>{data.analytics.skewers}</b></div><div className="card"><div className="muted">Orders</div><b style={{ fontSize: 30 }}>{data.analytics.orders}</b></div><div className="card" style={{ gridColumn: 'span 2' }}><h3 style={{ marginTop: 0 }}>Top Skewers</h3>{data.analytics.top_items?.length ? data.analytics.top_items.map((x, i) => <div key={i} className="actions" style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}><span>{x.name}</span><span className="spacer"/><b>{x.qty}</b></div>) : <span className="muted">No orders in this range.</span>}</div></div>
+      </>}
+
+      {tab === 'products' && <>
+        <div className="card" style={{ marginTop: 16 }}><h3>Add Product</h3><div className="grid grid-3"><div className="field"><label>Internal Name</label><input value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} /></div><div className="field"><label>Customer Name</label><input value={newItem.display_name} onChange={e => setNewItem({ ...newItem, display_name: e.target.value })} /></div><div className="field"><label>Max / Round</label><input type="number" value={newItem.max_per_round} onChange={e => setNewItem({ ...newItem, max_per_round: Number(e.target.value) })} /></div></div><button className="btn brand" style={{ marginTop: 12 }} onClick={async () => { if (await act({ type: 'menu', action: 'add', payload: newItem })) setNewItem({ name: '', display_name: '', description: '', portion_label: '1 skewer', max_per_round: 2, sort_order: 100 }); }}>ADD PRODUCT</button></div>
+        <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>{data.menu.map(item => <div className="card" key={item.id}><div className="actions"><div><b>{item.display_name || item.name}</b><div className="muted" style={{ fontSize: 12 }}>{item.portion_label} · max {item.max_per_round}</div></div><span className={`badge ${item.active ? 'available' : ''}`}>{item.active ? 'ACTIVE' : 'HIDDEN'}</span><span className="spacer"/><button className="btn secondary small" onClick={() => editProduct(item)}>Edit</button><button className="btn secondary small" onClick={() => act({ type: 'menu', action: item.active ? 'disable' : 'restore', item_id: item.id, payload: {} })}>{item.active ? 'Hide' : 'Restore'}</button></div></div>)}</div>
+      </>}
+
+      {tab === 'tables' && <>
+        <div className="card" style={{ marginTop: 16 }}><div className="actions"><div className="field" style={{ flex: 1 }}><label>New Table Name</label><input value={newTable} onChange={e => setNewTable(e.target.value)} /></div><button className="btn brand" onClick={async () => { if (await act({ type: 'table', action: 'add', name: newTable, capacity: 6 })) setNewTable(''); }}>ADD TABLE</button></div></div>
+        <div className="grid grid-3" style={{ marginTop: 14 }}>{data.tables.map(table => <div className="card" key={table.id}><div className="actions"><div><b>{table.name}</b><div className="muted" style={{ fontSize: 12 }}>Capacity {table.capacity}</div></div><span className={`badge ${table.active ? 'available' : ''}`}>{table.active ? 'ACTIVE' : 'HIDDEN'}</span><span className="spacer"/><button className="btn secondary small" onClick={() => editTable(table)}>Edit</button><button className="btn secondary small" onClick={() => act({ type: 'table', action: table.active ? 'disable' : 'restore', table_id: table.id })}>{table.active ? 'Disable' : 'Restore'}</button></div></div>)}</div>
+      </>}
+
+      {tab === 'settings' && <div className="card" style={{ marginTop: 16, maxWidth: 560 }}><h2>Skewer Reorder Cooldown</h2><p className="muted">Default 5 minutes. Manager can still unlock an individual table from Staff Dashboard.</p><div className="field"><label>Minutes</label><input type="number" min="0" max="15" value={cooldown} onChange={e => setCooldown(Number(e.target.value))} /></div><button className="btn brand" style={{ marginTop: 12 }} onClick={() => act({ type: 'settings', skewer_cooldown_minutes: cooldown })}>SAVE SETTINGS</button></div>}
+      {tab === 'security' && <div className="grid grid-3" style={{ marginTop: 16 }}>{['staff', 'kitchen', 'manager'].map(role => <PinCard key={role} role={role} act={act} />)}</div>}
+    </main>
+  </>;
+}
