@@ -27,7 +27,9 @@ export default function Manager() {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [cooldown, setCooldown] = useState(5);
-  const [newItem, setNewItem] = useState({ name: '', display_name: '', description: '', portion_label: '1 skewer', max_per_round: 2, sort_order: 100 });
+  const [rate, setRate] = useState(10);
+  const [newItem, setNewItem] = useState({ name: '', display_name: '', description: '', portion_label: '1 skewer', max_per_round: null, sort_order: 100 });
+  const [newItemUnlimited, setNewItemUnlimited] = useState(true);
   const [newTable, setNewTable] = useState('');
   const today = new Date().toISOString().slice(0, 10);
   const weekAgo = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
@@ -41,7 +43,7 @@ export default function Manager() {
     const j = await r.json();
     if (r.status === 401) { setAuth(false); return; }
     if (!r.ok) return setError(j.error || 'Unable to load manager data.');
-    setAuth(true); setData(j); setCooldown(j.settings?.skewer_cooldown_minutes ?? 5);
+    setAuth(true); setData(j); setCooldown(j.settings?.skewer_cooldown_minutes ?? 5); setRate(j.settings?.skewer_rate_per_guest ?? 10);
   }
 
   useEffect(() => { load(); }, []);
@@ -59,7 +61,14 @@ export default function Manager() {
     const display_name = prompt('Customer display name', item.display_name || item.name); if (display_name === null) return;
     const description = prompt('Description', item.description || ''); if (description === null) return;
     const portion_label = prompt('Portion label', item.portion_label || '1 skewer'); if (portion_label === null) return;
-    const max_per_round = Number(prompt('Max per order', item.max_per_round)); if (!Number.isFinite(max_per_round)) return;
+    const currentLimit = item.max_per_round == null ? 'unlimited' : String(item.max_per_round);
+    const limitInput = prompt('Max per round. Enter a number, or type unlimited', currentLimit); if (limitInput === null) return;
+    const normalized = limitInput.trim().toLowerCase();
+    let max_per_round = null;
+    if (normalized !== '' && normalized !== 'unlimited' && normalized !== 'none') {
+      max_per_round = Number(limitInput);
+      if (!Number.isFinite(max_per_round) || max_per_round < 1) return alert('Please enter a positive number or unlimited.');
+    }
     const sort_order = Number(prompt('Sort order', item.sort_order)); if (!Number.isFinite(sort_order)) return;
     act({ type: 'menu', action: 'update', item_id: item.id, payload: { name, display_name, description, portion_label, max_per_round, sort_order } });
   }
@@ -87,8 +96,8 @@ export default function Manager() {
       </>}
 
       {tab === 'products' && <>
-        <div className="card" style={{ marginTop: 16 }}><h3>Add Product</h3><div className="grid grid-3"><div className="field"><label>Internal Name</label><input value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} /></div><div className="field"><label>Customer Name</label><input value={newItem.display_name} onChange={e => setNewItem({ ...newItem, display_name: e.target.value })} /></div><div className="field"><label>Max / Round</label><input type="number" value={newItem.max_per_round} onChange={e => setNewItem({ ...newItem, max_per_round: Number(e.target.value) })} /></div></div><button className="btn brand" style={{ marginTop: 12 }} onClick={async () => { if (await act({ type: 'menu', action: 'add', payload: newItem })) setNewItem({ name: '', display_name: '', description: '', portion_label: '1 skewer', max_per_round: 2, sort_order: 100 }); }}>ADD PRODUCT</button></div>
-        <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>{data.menu.map(item => <div className="card" key={item.id}><div className="actions"><div><b>{item.display_name || item.name}</b><div className="muted" style={{ fontSize: 12 }}>{item.portion_label} · max {item.max_per_round}</div></div><span className={`badge ${item.active ? 'available' : ''}`}>{item.active ? 'ACTIVE' : 'HIDDEN'}</span><span className="spacer"/><button className="btn secondary small" onClick={() => editProduct(item)}>Edit</button><button className="btn secondary small" onClick={() => act({ type: 'menu', action: item.active ? 'disable' : 'restore', item_id: item.id, payload: {} })}>{item.active ? 'Hide' : 'Restore'}</button></div></div>)}</div>
+        <div className="card" style={{ marginTop: 16 }}><h3>Add Product</h3><div className="grid grid-3"><div className="field"><label>Internal Name</label><input value={newItem.name} onChange={e => setNewItem({ ...newItem, name: e.target.value })} /></div><div className="field"><label>Customer Name</label><input value={newItem.display_name} onChange={e => setNewItem({ ...newItem, display_name: e.target.value })} /></div><div className="field"><label>Max / Round</label><input type="number" min="1" disabled={newItemUnlimited} value={newItem.max_per_round ?? ''} placeholder="Unlimited" onChange={e => setNewItem({ ...newItem, max_per_round: e.target.value === '' ? null : Number(e.target.value) })} /></div></div><label style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 10 }}><input type="checkbox" checked={newItemUnlimited} onChange={e => { setNewItemUnlimited(e.target.checked); setNewItem({ ...newItem, max_per_round: e.target.checked ? null : 2 }); }} /> Unlimited per item</label><button className="btn brand" style={{ marginTop: 12 }} onClick={async () => { const payload = { ...newItem, max_per_round: newItemUnlimited ? null : newItem.max_per_round }; if (await act({ type: 'menu', action: 'add', payload })) { setNewItem({ name: '', display_name: '', description: '', portion_label: '1 skewer', max_per_round: null, sort_order: 100 }); setNewItemUnlimited(true); } }}>ADD PRODUCT</button></div>
+        <div style={{ display: 'grid', gap: 8, marginTop: 14 }}>{data.menu.map(item => <div className="card" key={item.id}><div className="actions"><div><b>{item.display_name || item.name}</b><div className="muted" style={{ fontSize: 12 }}>{item.portion_label} · max {item.max_per_round == null ? 'Unlimited' : item.max_per_round}</div></div><span className={`badge ${item.active ? 'available' : ''}`}>{item.active ? 'ACTIVE' : 'HIDDEN'}</span><span className="spacer"/><button className="btn secondary small" onClick={() => editProduct(item)}>Edit</button><button className="btn secondary small" onClick={() => act({ type: 'menu', action: item.active ? 'disable' : 'restore', item_id: item.id, payload: {} })}>{item.active ? 'Hide' : 'Restore'}</button></div></div>)}</div>
       </>}
 
       {tab === 'tables' && <>
@@ -96,7 +105,7 @@ export default function Manager() {
         <div className="grid grid-3" style={{ marginTop: 14 }}>{data.tables.map(table => <div className="card" key={table.id}><div className="actions"><div><b>{table.name}</b><div className="muted" style={{ fontSize: 12 }}>Capacity {table.capacity}</div></div><span className={`badge ${table.active ? 'available' : ''}`}>{table.active ? 'ACTIVE' : 'HIDDEN'}</span><span className="spacer"/><button className="btn secondary small" onClick={() => editTable(table)}>Edit</button><button className="btn secondary small" onClick={() => act({ type: 'table', action: table.active ? 'disable' : 'restore', table_id: table.id })}>{table.active ? 'Disable' : 'Restore'}</button></div></div>)}</div>
       </>}
 
-      {tab === 'settings' && <div className="card" style={{ marginTop: 16, maxWidth: 560 }}><h2>Skewer Reorder Cooldown</h2><p className="muted">Default 5 minutes. Manager can still unlock an individual table from Staff Dashboard.</p><div className="field"><label>Minutes</label><input type="number" min="0" max="15" value={cooldown} onChange={e => setCooldown(Number(e.target.value))} /></div><button className="btn brand" style={{ marginTop: 12 }} onClick={() => act({ type: 'settings', skewer_cooldown_minutes: cooldown })}>SAVE SETTINGS</button></div>}
+      {tab === 'settings' && <div className="card" style={{ marginTop: 16, maxWidth: 620 }}><h2>Ordering Rules</h2><p className="muted">Round limit = diners × skewer rate. Children under 4 are not counted in the diner total.</p><div className="grid grid-2"><div className="field"><label>Skewers per diner / round</label><input type="number" min="1" max="100" value={rate} onChange={e => setRate(Number(e.target.value))} /></div><div className="field"><label>Reorder cooldown (minutes)</label><input type="number" min="0" max="15" value={cooldown} onChange={e => setCooldown(Number(e.target.value))} /></div></div><div className="notice" style={{ marginTop: 12 }}>Example: rate {rate} × 4 diners = {rate * 4} skewers per round.</div><button className="btn brand" style={{ marginTop: 12 }} onClick={() => act({ type: 'settings', skewer_cooldown_minutes: cooldown, skewer_rate_per_guest: rate })}>SAVE SETTINGS</button></div>}
       {tab === 'security' && <div className="grid grid-3" style={{ marginTop: 16 }}>{['staff', 'kitchen', 'manager'].map(role => <PinCard key={role} role={role} act={act} />)}</div>}
     </main>
   </>;
