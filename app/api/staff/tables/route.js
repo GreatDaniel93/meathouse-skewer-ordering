@@ -1,0 +1,2 @@
+import {db} from '@/lib/db';import {getAccessToken,requireRole} from '@/lib/auth';
+export async function GET(){const role=await requireRole(['staff','manager']);if(!role)return Response.json({error:'Staff login required.'},{status:401});const token=await getAccessToken();const {data,error}=await db().rpc('staff_get_tables',{p_secret:token});if(error)return Response.json({error:error.message},{status:409});return Response.json({role,tables:data});}
