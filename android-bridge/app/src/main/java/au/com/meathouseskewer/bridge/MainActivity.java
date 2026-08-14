@@ -7,7 +7,6 @@ import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.os.*;
 import android.text.InputType;
-import android.view.View;
 import android.widget.*;
 
 public class MainActivity extends Activity {
@@ -16,7 +15,7 @@ public class MainActivity extends Activity {
     private void buildUi(){
         SharedPreferences p=getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE);
         ScrollView sv=new ScrollView(this);LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(32,28,32,40);sv.addView(root);
-        TextView title=t("MEAT HOUSE",30,true);root.addView(title);root.addView(t("SKEWER PRINT BRIDGE",16,true));root.addView(t("Two printers receive the same skewer order.",14,false));
+        root.addView(t("MEAT HOUSE",30,true));root.addView(t("SKEWER PRINT BRIDGE",16,true));root.addView(t("Two printers receive the same skewer order.",14,false));
         ip1=field("Printer 1 IP",p.getString("ip1","192.168.0.192"));root.addView(ip1);
         ip2=field("Printer 2 IP",p.getString("ip2","192.168.0.193"));root.addView(ip2);
         port=field("Port",String.valueOf(p.getInt("port",9100)));port.setInputType(InputType.TYPE_CLASS_NUMBER);root.addView(port);
@@ -28,16 +27,37 @@ public class MainActivity extends Activity {
         root.addView(t("Default printers: 192.168.0.192 and 192.168.0.193 · ESC/POS · TCP 9100",12,false));
         setContentView(sv);
         t1.setOnClickListener(v->test(1));t2.setOnClickListener(v->test(2));tb.setOnClickListener(v->{test(1);test(2);});
-        start.setOnClickListener(v->{save();getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putBoolean("enabled",true).apply();startForegroundService(new Intent(this,BridgeService.class));toast("Bridge started");});
-        stop.setOnClickListener(v->{Intent i=new Intent(this,BridgeService.class);i.setAction(BridgeService.ACTION_STOP);startService(i);toast("Bridge stopped");});
+        start.setOnClickListener(v->startBridge());
+        stop.setOnClickListener(v->stopBridge());
     }
-    private void save(){getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putString("ip1",ip1.getText().toString().trim()).putString("ip2",ip2.getText().toString().trim()).putInt("port",Integer.parseInt(port.getText().toString().trim())).putString("secret",secret.getText().toString().trim()).apply();}
-    private void test(int which){save();String host=which==1?ip1.getText().toString().trim():ip2.getText().toString().trim();int prt=Integer.parseInt(port.getText().toString().trim());new Thread(()->{try{PrinterClient.printTest(host,prt,"PRINTER "+which);runOnUiThread(()->toast("Printer "+which+" OK"));}catch(Exception e){runOnUiThread(()->toast("Printer "+which+" failed: "+e.getMessage()));}}).start();}
+    private void startBridge(){
+        try{
+            save();
+            SharedPreferences p=getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE);
+            if(secret.getText().toString().trim().isEmpty()){toast("Bridge Key is required");return;}
+            p.edit().putBoolean("enabled",true).putString("status","Starting...").apply();
+            Intent i=new Intent(this,BridgeService.class);
+            if(Build.VERSION.SDK_INT>=26) startForegroundService(i); else startService(i);
+            toast("Starting bridge...");
+        }catch(Exception e){
+            getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putBoolean("enabled",false).putString("status","Start failed: "+e.getClass().getSimpleName()+" - "+String.valueOf(e.getMessage())).apply();
+            toast("Start failed: "+e.getMessage());
+        }
+    }
+    private void stopBridge(){
+        try{
+            Intent i=new Intent(this,BridgeService.class);i.setAction(BridgeService.ACTION_STOP);
+            if(Build.VERSION.SDK_INT>=26) startForegroundService(i); else startService(i);
+        }catch(Exception e){stopService(new Intent(this,BridgeService.class));getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putBoolean("enabled",false).putString("status","Stopped").apply();}
+        toast("Bridge stopped");
+    }
+    private void save(){int prt=9100;try{prt=Integer.parseInt(port.getText().toString().trim());}catch(Exception ignored){}getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putString("ip1",ip1.getText().toString().trim()).putString("ip2",ip2.getText().toString().trim()).putInt("port",prt).putString("secret",secret.getText().toString().trim()).apply();}
+    private void test(int which){save();String host=which==1?ip1.getText().toString().trim():ip2.getText().toString().trim();int prt=9100;try{prt=Integer.parseInt(port.getText().toString().trim());}catch(Exception ignored){}final int fp=prt;new Thread(()->{try{PrinterClient.printTest(host,fp,"PRINTER "+which);runOnUiThread(()->toast("Printer "+which+" OK"));}catch(Exception e){runOnUiThread(()->toast("Printer "+which+" failed: "+e.getMessage()));}}).start();}
     private EditText field(String hint,String value){EditText e=new EditText(this);e.setHint(hint);e.setText(value);e.setSingleLine(true);e.setPadding(18,18,18,18);return e;}
     private TextView t(String s,int size,boolean bold){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(Color.rgb(35,28,25));if(bold)v.setTypeface(null,1);v.setPadding(0,8,0,8);return v;}
     private Button button(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setLayoutParams(new LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1));return b;}
     private LinearLayout row(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.HORIZONTAL);return l;}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
-    private final Runnable refresh=new Runnable(){public void run(){if(status!=null){SharedPreferences p=getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE);status.setText("Status: "+p.getString("status",p.getBoolean("enabled",false)?"Starting...":"Stopped"));}h.postDelayed(this,1000);}};
+    private final Runnable refresh=new Runnable(){public void run(){if(status!=null){SharedPreferences p=getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE);status.setText("Status: "+p.getString("status",p.getBoolean("enabled",false)?"Starting...":"Stopped"));}h.postDelayed(this,750);}};
     @Override protected void onDestroy(){h.removeCallbacks(refresh);super.onDestroy();}
 }
