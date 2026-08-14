@@ -18,57 +18,67 @@ final class PrinterClient {
     static void printTest(String host, int port, String label) throws Exception {
         ByteArrayOutputStream b = new ByteArrayOutputStream();
         init(b); center(b); bold(b,true); size(b,1,1);
-        line(b,"MEAT HOUSE"); line(b,"打印测试");
-        size(b,0,0); bold(b,false); line(b,label); line(b,host+":"+port); line(b,"连接正常"); finish(b);
+        line(b,"MEAT HOUSE"); line(b,"打印测试 / PRINT TEST");
+        size(b,0,0); bold(b,false); line(b,label); line(b,host+":"+port); line(b,"连接正常 / CONNECTION OK"); finish(b);
         send(host,port,b.toByteArray());
     }
 
     static void printOrder(String host, int port, JSONObject job) throws Exception {
         ByteArrayOutputStream b = new ByteArrayOutputStream(); init(b); center(b); bold(b,true);
-        line(b,"MEAT HOUSE"); line(b,"烤 串 单"); line(b,"==========================================");
+        line(b,"MEAT HOUSE"); line(b,"烤 串 单 / SKEWER ORDER"); line(b,"==========================================");
 
-        size(b,1,1); line(b,chineseTable(job.optString("table_name",""))); size(b,0,0);
-        line(b,"第 "+job.optInt("round_no",0)+" 轮"); line(b,"==========================================");
+        size(b,1,1); line(b,bilingualTable(job.optString("table_name",""))); size(b,0,0);
+        line(b,"第 "+job.optInt("round_no",0)+" 轮 / ROUND "+job.optInt("round_no",0)); line(b,"==========================================");
 
         left(b); bold(b,false);
         String created=job.optString("created_at",""); String time=created;
         try {time=DateTimeFormatter.ofPattern("hh:mm a").withZone(ZoneId.of("Australia/Sydney")).format(Instant.parse(created));}catch(Exception ignored){}
-        line(b,"下单时间  "+time); line(b,"------------------------------------------");
+        line(b,"下单时间 / ORDER TIME  "+time); line(b,"------------------------------------------");
 
         JSONArray items=job.optJSONArray("items"); int total=0;
         if(items!=null) for(int i=0;i<items.length();i++){
             JSONObject it=items.getJSONObject(i); int qty=it.optInt("qty",0); total+=qty;
-            String display=it.optString("display_name",it.optString("name","菜品"));
-            line(b,formatColumns(chineseName(display,it.optString("name","菜品")),"× "+qty));
+            String display=it.optString("display_name",it.optString("name","菜品 / Item"));
+            String fallback=it.optString("name","Item");
+            String[] names=bilingualNames(display,fallback);
+            bold(b,true); line(b,formatColumns(names[0],"× "+qty)); bold(b,false);
+            if(!names[1].isEmpty()) line(b,"  "+names[1]);
+            if(i<items.length()-1) line(b,"");
         }
 
         line(b,"------------------------------------------"); bold(b,true); size(b,1,0);
-        line(b,formatColumns("总串数",String.valueOf(total))); size(b,0,0); bold(b,false);
+        line(b,formatColumns("总串数 / TOTAL",String.valueOf(total))); size(b,0,0); bold(b,false);
         line(b,"=========================================="); finish(b); send(host,port,b.toByteArray());
     }
 
-    private static String chineseTable(String raw){
+    private static String bilingualTable(String raw){
         String s=raw==null?"":raw.trim().toUpperCase();
         String digits=s.replaceAll("[^0-9]","");
-        if(!digits.isEmpty()) return digits+"桌";
-        return raw+" 桌";
+        if(!digits.isEmpty()) return digits+"桌 / TABLE "+digits;
+        return raw+" / TABLE";
     }
 
-    private static String chineseName(String display,String fallback){
+    private static String[] bilingualNames(String display,String fallback){
+        String zh="", en="";
         String d=display==null?"":display.trim();
-        int slash=d.indexOf('/');
-        if(slash>0){String first=d.substring(0,slash).trim();if(hasChinese(first))return first;String second=d.substring(slash+1).trim();if(hasChinese(second))return second;}
-        if(hasChinese(d)) return d;
+        if(d.contains("/")){
+            String[] parts=d.split("/",2);String a=parts[0].trim(),c=parts[1].trim();
+            if(hasChinese(a)){zh=a;en=c;}else if(hasChinese(c)){zh=c;en=a;}else en=a;
+        }else if(hasChinese(d)) zh=d; else en=d;
+
         String f=fallback==null?"":fallback.trim();
-        slash=f.indexOf('/');
-        if(slash>=0){String a=f.substring(0,slash).trim(),c=f.substring(slash+1).trim();if(hasChinese(a))return a;if(hasChinese(c))return c;}
-        return d.isEmpty()?f:d;
+        if((zh.isEmpty()||en.isEmpty())&&f.contains("/")){
+            String[] parts=f.split("/",2);String a=parts[0].trim(),c=parts[1].trim();
+            if(zh.isEmpty()){if(hasChinese(a))zh=a;else if(hasChinese(c))zh=c;}
+            if(en.isEmpty()){if(!hasChinese(a))en=a;else if(!hasChinese(c))en=c;}
+        }
+        if(en.isEmpty()&&!hasChinese(f)) en=f;
+        if(zh.isEmpty()) zh=en.isEmpty()?"菜品":en;
+        return new String[]{zh,en};
     }
     private static boolean hasChinese(String s){for(int i=0;i<s.length();i++){char c=s.charAt(i);if(c>=0x4E00&&c<=0x9FFF)return true;}return false;}
 
-    private static String formatColumns(String left,String right){
-        int spaces=Math.max(1,LINE_WIDTH-displayWidth(left)-displayWidth(right)); return left+" ".repeat(spaces)+right;
-    }
+    private static String formatColumns(String left,String right){int spaces=Math.max(1,LINE_WIDTH-displayWidth(left)-displayWidth(right));return left+" ".repeat(spaces)+right;}
     private static int displayWidth(String s){int w=0;for(int i=0;i<s.length();i++){char c=s.charAt(i);w+=(c>127?2:1);}return w;}
 
     private static void send(String host,int port,byte[] data)throws Exception{try(Socket s=new Socket()){s.connect(new InetSocketAddress(host,port),3000);s.setSoTimeout(5000);OutputStream out=s.getOutputStream();out.write(data);out.flush();}}
