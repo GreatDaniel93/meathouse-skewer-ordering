@@ -20,9 +20,16 @@ public class MainActivity extends Activity {
         ip2=field("Printer 2 IP",p.getString("ip2","192.168.0.193"));root.addView(ip2);
         port=field("Port",String.valueOf(p.getInt("port",9100)));port.setInputType(InputType.TYPE_CLASS_NUMBER);root.addView(port);
         secret=field("Bridge Key",p.getString("secret",""));secret.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);root.addView(secret);
-        LinearLayout tests=row();Button t1=button("TEST P1"),t2=button("TEST P2"),tb=button("TEST BOTH");tests.addView(t1);tests.addView(t2);tests.addView(tb);root.addView(tests);
-        Button start=button("START BRIDGE");start.setBackgroundColor(Color.rgb(111,40,35));start.setTextColor(Color.WHITE);root.addView(start);
-        Button stop=button("STOP BRIDGE");root.addView(stop);
+
+        LinearLayout tests=row();
+        Button t1=rowButton("TEST P1"),t2=rowButton("TEST P2"),tb=rowButton("TEST BOTH");
+        tests.addView(t1);tests.addView(t2);tests.addView(tb);root.addView(tests);
+
+        Button start=fullButton("START BRIDGE");
+        start.setBackgroundColor(Color.rgb(111,40,35));start.setTextColor(Color.WHITE);
+        root.addView(start);
+        Button stop=fullButton("STOP BRIDGE");root.addView(stop);
+
         status=t("Status: "+p.getString("status","Stopped"),16,true);status.setPadding(0,24,0,0);root.addView(status);
         root.addView(t("Default printers: 192.168.0.192 and 192.168.0.193 · ESC/POS · TCP 9100",12,false));
         setContentView(sv);
@@ -55,7 +62,8 @@ public class MainActivity extends Activity {
     private void test(int which){save();String host=which==1?ip1.getText().toString().trim():ip2.getText().toString().trim();int prt=9100;try{prt=Integer.parseInt(port.getText().toString().trim());}catch(Exception ignored){}final int fp=prt;new Thread(()->{try{PrinterClient.printTest(host,fp,"PRINTER "+which);runOnUiThread(()->toast("Printer "+which+" OK"));}catch(Exception e){runOnUiThread(()->toast("Printer "+which+" failed: "+e.getMessage()));}}).start();}
     private EditText field(String hint,String value){EditText e=new EditText(this);e.setHint(hint);e.setText(value);e.setSingleLine(true);e.setPadding(18,18,18,18);return e;}
     private TextView t(String s,int size,boolean bold){TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(Color.rgb(35,28,25));if(bold)v.setTypeface(null,1);v.setPadding(0,8,0,8);return v;}
-    private Button button(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setLayoutParams(new LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1));return b;}
+    private Button rowButton(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setLayoutParams(new LinearLayout.LayoutParams(0,LinearLayout.LayoutParams.WRAP_CONTENT,1));return b;}
+    private Button fullButton(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,LinearLayout.LayoutParams.WRAP_CONTENT);lp.setMargins(0,12,0,0);b.setLayoutParams(lp);return b;}
     private LinearLayout row(){LinearLayout l=new LinearLayout(this);l.setOrientation(LinearLayout.HORIZONTAL);return l;}
     private void toast(String s){Toast.makeText(this,s,Toast.LENGTH_LONG).show();}
     private final Runnable refresh=new Runnable(){public void run(){if(status!=null){SharedPreferences p=getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE);status.setText("Status: "+p.getString("status",p.getBoolean("enabled",false)?"Starting...":"Stopped"));}h.postDelayed(this,750);}};
