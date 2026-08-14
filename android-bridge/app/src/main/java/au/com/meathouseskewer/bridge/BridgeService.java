@@ -15,10 +15,16 @@ public class BridgeService extends Service {
     private ScheduledExecutorService executor;
     private volatile boolean running=true;
 
-    @Override public void onCreate(){super.onCreate();createChannel();startForeground(1001,notification("Bridge starting..."));}
+    @Override public void onCreate(){
+        super.onCreate();
+        createChannel();
+        startForeground(1001,notification("Bridge starting..."));
+        setStatus("Bridge running - connecting to server...");
+    }
     @Override public int onStartCommand(Intent intent,int flags,int startId){
         if(intent!=null&&ACTION_STOP.equals(intent.getAction())){stopBridge();return START_NOT_STICKY;}
-        if(executor==null){
+        running=true;
+        if(executor==null||executor.isShutdown()){
             getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putBoolean("enabled",true).apply();
             executor=Executors.newSingleThreadScheduledExecutor();
             executor.scheduleWithFixedDelay(this::poll,0,2,TimeUnit.SECONDS);
@@ -69,8 +75,8 @@ public class BridgeService extends Service {
     private void setStatus(String s){getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putString("status",s).putLong("statusAt",System.currentTimeMillis()).apply();((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).notify(1001,notification(s));}
     private Notification notification(String text){return new Notification.Builder(this,CHANNEL).setContentTitle("Meat House Skewer Bridge").setContentText(text).setSmallIcon(android.R.drawable.stat_notify_sync).setOngoing(true).build();}
     private void createChannel(){if(Build.VERSION.SDK_INT>=26)((NotificationManager)getSystemService(NOTIFICATION_SERVICE)).createNotificationChannel(new NotificationChannel(CHANNEL,"Skewer Bridge",NotificationManager.IMPORTANCE_LOW));}
-    private static String shortMsg(Exception e){String s=e.getMessage();return s==null?e.getClass().getSimpleName():(s.length()>80?s.substring(0,80):s);}
+    private static String shortMsg(Exception e){String s=e.getMessage();return s==null?e.getClass().getSimpleName():(s.length()>120?s.substring(0,120):s);}
     private void stopBridge(){running=false;getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putBoolean("enabled",false).putString("status","Stopped").apply();if(executor!=null)executor.shutdownNow();stopForeground(STOP_FOREGROUND_REMOVE);stopSelf();}
-    @Override public void onDestroy(){running=false;if(executor!=null)executor.shutdownNow();super.onDestroy();}
+    @Override public void onDestroy(){running=false;if(executor!=null)executor.shutdownNow();if(getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).getBoolean("enabled",false))getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putString("status","Service stopped unexpectedly").apply();super.onDestroy();}
     @Override public android.os.IBinder onBind(Intent intent){return null;}
 }
