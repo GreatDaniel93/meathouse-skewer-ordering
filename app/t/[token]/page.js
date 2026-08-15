@@ -2,6 +2,7 @@
 
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
+import LuckySkewerReward from './LuckySkewerReward';
 
 function fmt(ms) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -16,6 +17,7 @@ export default function Customer() {
   const [err, setErr] = useState('');
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
+  const [luckyVoucher, setLuckyVoucher] = useState(null);
 
   async function load() {
     const r = await fetch(`/api/customer/session?token=${encodeURIComponent(token)}`, { cache: 'no-store' });
@@ -76,10 +78,14 @@ export default function Customer() {
     }
     setCart({});
     await load();
+    if (j?.voucher) {
+      setTimeout(() => setLuckyVoucher(j.voucher), 220);
+    }
   }
 
   return (
     <>
+      <LuckySkewerReward voucher={luckyVoucher} onClose={() => setLuckyVoucher(null)} />
       <div className="topbar"><div className="logo">MEAT HOUSE<small>UNLIMITED SKEWERS</small></div></div>
       <main className="page" style={{ maxWidth: 760 }}>
         {err && <div className="error">{err}</div>}
@@ -97,6 +103,9 @@ export default function Customer() {
           {!session ? <div className="notice" style={{ marginTop: 14 }}><b>Your table is not active yet.</b><br />Please wait for our team to start your dining session.</div> : <>
             <div className="notice" style={{ marginTop: 14 }}>
               This round: {diners} diners × {rate} = <b>{limit} skewers maximum</b>. Your next order becomes available after the table cooldown.
+            </div>
+            <div className="notice" style={{ marginTop: 10, background: '#fff8e8', borderColor: '#ebc66b' }}>
+              🎁 <b>Lucky Skewer Rewards</b> — Every skewer you order could be the lucky one.
             </div>
             {closed && <div className="error" style={{ marginTop: 10 }}>Last order has closed for this session.</div>}
 
