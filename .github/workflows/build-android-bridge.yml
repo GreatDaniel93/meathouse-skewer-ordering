@@ -4,9 +4,14 @@ on:
   push:
     branches: [main]
     paths:
-      - 'android-bridge/**'
+      - 'android-bridge/app/**'
+      - 'android-bridge/build.gradle'
+      - 'android-bridge/settings.gradle'
       - '.github/workflows/build-android-bridge.yml'
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -27,3 +32,12 @@ jobs:
           name: MeatHouse-Skewer-Bridge-APK
           path: android-bridge/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+      - name: Publish latest APK to repository
+        run: |
+          mkdir -p android-bridge/releases
+          cp android-bridge/app/build/outputs/apk/debug/app-debug.apk android-bridge/releases/MeatHouse-Skewer-Bridge-latest.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android-bridge/releases/MeatHouse-Skewer-Bridge-latest.apk
+          git commit -m "Publish latest Meat House Bridge APK" || exit 0
+          git push
