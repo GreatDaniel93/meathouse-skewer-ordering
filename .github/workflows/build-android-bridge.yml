@@ -32,12 +32,13 @@ jobs:
           name: MeatHouse-Skewer-Bridge-APK
           path: android-bridge/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-      - name: Publish latest APK to repository
+      - name: Publish latest APK to repository and website
         run: |
-          mkdir -p android-bridge/releases
+          mkdir -p android-bridge/releases public
           cp android-bridge/app/build/outputs/apk/debug/app-debug.apk android-bridge/releases/MeatHouse-Skewer-Bridge-latest.apk
+          cp android-bridge/app/build/outputs/apk/debug/app-debug.apk public/bridge.apk
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add android-bridge/releases/MeatHouse-Skewer-Bridge-latest.apk
+          git add android-bridge/releases/MeatHouse-Skewer-Bridge-latest.apk public/bridge.apk
           git commit -m "Publish latest Meat House Bridge APK" || exit 0
           git push
