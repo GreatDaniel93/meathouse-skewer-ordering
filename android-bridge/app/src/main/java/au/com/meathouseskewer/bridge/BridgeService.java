@@ -12,6 +12,7 @@ import java.util.concurrent.*;
 public class BridgeService extends Service {
     public static final String ACTION_STOP="STOP";
     private static final String CHANNEL="bridge";
+    private static final String LOCAL_ACK_PREFIX="printed_";
     private ScheduledExecutorService executor;
     private volatile boolean running=true;
     private PowerManager.WakeLock wakeLock;
@@ -52,27 +53,49 @@ public class BridgeService extends Service {
                 JSONObject job=jobs.getJSONObject(i);
                 String jid=job.getString("job_id");
                 String table=job.optString("table_name","table");
-                if(!job.optBoolean("printer1_done")){
-                    try{
-                        setStatus("Printing "+table+" on Printer 1...");
-                        PrinterClient.printOrder(ip1,port,job);
-                        ack(secret,jid,1);
-                        setStatus("Printed "+table+" on Printer 1");
-                    }catch(Throwable e){setStatus("Printer 1 error: "+shortMsg(e));}
-                }
-                if(!job.optBoolean("printer2_done")){
-                    try{
-                        setStatus("Printing "+table+" on Printer 2...");
-                        PrinterClient.printOrder(ip2,port,job);
-                        ack(secret,jid,2);
-                        setStatus("Printed "+table+" on Printer 2");
-                    }catch(Throwable e){setStatus("Printer 2 error: "+shortMsg(e));}
-                }
+                if(!job.optBoolean("printer1_done")) processPrinter(secret,jid,1,ip1,port,job,table);
+                else clearLocalPrinted(jid,1);
+                if(!job.optBoolean("printer2_done")) processPrinter(secret,jid,2,ip2,port,job,table);
+                else clearLocalPrinted(jid,2);
             }
         }catch(Throwable e){
             setStatus("Server error: "+shortMsg(e));
         }
     }
+
+    private void processPrinter(String secret,String jid,int printer,String ip,int port,JSONObject job,String table){
+        try{
+            if(isLocalPrinted(jid,printer)){
+                setStatus("Confirming "+table+" Printer "+printer+"...");
+                ackWithRetry(secret,jid,printer);
+                clearLocalPrinted(jid,printer);
+                setStatus("Confirmed "+table+" Printer "+printer);
+                return;
+            }
+            setStatus("Printing "+table+" on Printer "+printer+"...");
+            PrinterClient.printOrder(ip,port,job);
+            markLocalPrinted(jid,printer);
+            ackWithRetry(secret,jid,printer);
+            clearLocalPrinted(jid,printer);
+            setStatus("Printed "+table+" on Printer "+printer);
+        }catch(Throwable e){
+            setStatus("Printer "+printer+" error: "+shortMsg(e));
+        }
+    }
+
+    private void ackWithRetry(String secret,String jobId,int printer)throws Exception{
+        Exception last=null;
+        for(int attempt=1;attempt<=3;attempt++){
+            try{ack(secret,jobId,printer);return;}
+            catch(Exception e){last=e;try{Thread.sleep(350L*attempt);}catch(InterruptedException ie){Thread.currentThread().interrupt();throw ie;}}
+        }
+        throw last==null?new IOException("ACK failed"):last;
+    }
+
+    private String localPrintedKey(String jobId,int printer){return LOCAL_ACK_PREFIX+jobId+"_p"+printer;}
+    private boolean isLocalPrinted(String jobId,int printer){return getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).getBoolean(localPrintedKey(jobId,printer),false);}
+    private void markLocalPrinted(String jobId,int printer){getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putBoolean(localPrintedKey(jobId,printer),true).commit();}
+    private void clearLocalPrinted(String jobId,int printer){getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().remove(localPrintedKey(jobId,printer)).apply();}
 
     private JSONArray rpcJobs(String secret)throws Exception{
         String body=new JSONObject().put("p_secret",secret).toString();
@@ -105,8 +128,6 @@ public class BridgeService extends Service {
         }
     }
 
-    // Compatible with older Android versions. ByteArrayOutputStream.toString(Charset)
-    // is not available on some older devices and can throw NoSuchMethodError.
     private static String read(InputStream in)throws Exception{
         if(in==null)return"";
         ByteArrayOutputStream b=new ByteArrayOutputStream();
