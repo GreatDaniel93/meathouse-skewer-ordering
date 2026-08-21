@@ -13,6 +13,7 @@ public class BridgeService extends Service {
     public static final String ACTION_STOP="STOP";
     private static final String CHANNEL="bridge";
     private static final String LOCAL_ACK_PREFIX="printed_";
+    private static final long WATCHDOG_MS=5*60*1000L;
     private ScheduledExecutorService executor;
     private volatile boolean running=true;
     private PowerManager.WakeLock wakeLock;
@@ -22,14 +23,16 @@ public class BridgeService extends Service {
         createChannel();
         startForeground(1001,notification("Bridge starting..."));
         acquireWakeLock();
+        WatchdogReceiver.schedule(this,WATCHDOG_MS);
         setStatus("Bridge running - connecting to server...");
     }
 
     @Override public int onStartCommand(Intent intent,int flags,int startId){
         if(intent!=null&&ACTION_STOP.equals(intent.getAction())){stopBridge();return START_NOT_STICKY;}
         running=true;
+        getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putBoolean("enabled",true).apply();
+        WatchdogReceiver.schedule(this,WATCHDOG_MS);
         if(executor==null||executor.isShutdown()){
-            getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putBoolean("enabled",true).apply();
             executor=Executors.newSingleThreadScheduledExecutor();
             executor.scheduleWithFixedDelay(()->{
                 try{poll();}
@@ -160,9 +163,18 @@ public class BridgeService extends Service {
     private void releaseWakeLock(){try{if(wakeLock!=null&&wakeLock.isHeld())wakeLock.release();}catch(Throwable ignored){}}
     private static String shortMsg(Throwable e){String s=e.getMessage();if(s==null||s.trim().isEmpty())s=e.getClass().getSimpleName();return s.length()>160?s.substring(0,160):s;}
 
+    @Override public void onTaskRemoved(Intent rootIntent){
+        if(getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).getBoolean("enabled",false)){
+            WatchdogReceiver.schedule(this,5000L);
+            setStatus("Bridge protected - restart scheduled");
+        }
+        super.onTaskRemoved(rootIntent);
+    }
+
     private void stopBridge(){
         running=false;
         getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putBoolean("enabled",false).putString("status","Stopped").apply();
+        WatchdogReceiver.cancel(this);
         if(executor!=null)executor.shutdownNow();
         releaseWakeLock();
         stopForeground(STOP_FOREGROUND_REMOVE);
@@ -173,7 +185,11 @@ public class BridgeService extends Service {
         running=false;
         if(executor!=null)executor.shutdownNow();
         releaseWakeLock();
-        if(getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).getBoolean("enabled",false))getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putString("status","Service restarting...").apply();
+        boolean enabled=getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).getBoolean("enabled",false);
+        if(enabled){
+            getSharedPreferences(BridgeConfig.PREFS,MODE_PRIVATE).edit().putString("status","Service restarting...").apply();
+            WatchdogReceiver.schedule(this,5000L);
+        }
         super.onDestroy();
     }
 
