@@ -1,13 +1,18 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import LuckySkewerReward from './LuckySkewerReward';
 
 function fmt(ms) {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   const minutes = Math.floor(seconds / 60);
   return `${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function makeRequestId() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random().toString(36).slice(2)}`;
 }
 
 export default function Customer() {
@@ -18,6 +23,7 @@ export default function Customer() {
   const [now, setNow] = useState(Date.now());
   const [busy, setBusy] = useState(false);
   const [luckyVoucher, setLuckyVoucher] = useState(null);
+  const submittingRef = useRef(false);
 
   async function load() {
     const r = await fetch(`/api/customer/session?token=${encodeURIComponent(token)}`, { cache: 'no-store' });
@@ -59,27 +65,35 @@ export default function Customer() {
   }
 
   async function submit() {
-    if (!total) return;
+    if (!total || submittingRef.current) return;
+    submittingRef.current = true;
     setBusy(true);
     setErr('');
     const items = Object.entries(cart)
       .filter(([, qty]) => qty > 0)
       .map(([menu_item_id, qty]) => ({ menu_item_id, qty }));
-    const r = await fetch('/api/customer/order', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ token, items }),
-    });
-    const j = await r.json();
-    setBusy(false);
-    if (!r.ok) {
-      setErr(j.error || 'Order failed.');
-      return;
-    }
-    setCart({});
-    await load();
-    if (j?.voucher) {
-      setTimeout(() => setLuckyVoucher(j.voucher), 220);
+    const request_id = makeRequestId();
+    try {
+      const r = await fetch('/api/customer/order', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ token, items, request_id }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setErr(j.error || 'Order failed.');
+        return;
+      }
+      setCart({});
+      await load();
+      if (j?.voucher) {
+        setTimeout(() => setLuckyVoucher(j.voucher), 220);
+      }
+    } catch (e) {
+      setErr('Network error. Please try again.');
+    } finally {
+      submittingRef.current = false;
+      setBusy(false);
     }
   }
 
