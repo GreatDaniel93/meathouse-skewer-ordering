@@ -38,9 +38,8 @@ jobs:
           cp android-bridge/app/build/outputs/apk/debug/app-debug.apk android-bridge/releases/MeatHouse-Skewer-Bridge-latest.apk
           cp android-bridge/app/build/outputs/apk/debug/app-debug.apk public/bridge.apk
           git config user.name "github-actions[bot]"
-          git config user.email "4189822+github-actions[bot]@users.noreply.github.com"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add android-bridge/releases/MeatHouse-Skewer-Bridge-latest.apk public/bridge.apk
           git commit -m "Publish latest Meat House Bridge APK" || exit 0
+          git pull --rebase origin main
           git push
-
-# Rebuild marker: heartbeat-enabled bridge
