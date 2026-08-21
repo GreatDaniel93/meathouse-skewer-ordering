@@ -4,9 +4,11 @@ import { usePathname } from 'next/navigation';
 
 const NAV = [
   { href: '/manager', label: 'Manager Home', icon: '⌂' },
+  { href: '/manager/bridge', label: 'System Health', icon: '♥' },
+  { href: '/manager/print', label: 'Print Queue', icon: '▤' },
+  { href: '/manager/analytics', label: 'Analytics', icon: '▥' },
   { href: '/manager/qr', label: 'QR Codes', icon: '▦' },
   { href: '/manager/vouchers', label: 'Vouchers', icon: '◈' },
-  { href: '/manager/bridge', label: 'Bridge Health', icon: '♥' },
   { href: '/staff', label: 'Staff', icon: '◎' },
   { href: '/kitchen', label: 'Kitchen', icon: '≡' },
 ];
