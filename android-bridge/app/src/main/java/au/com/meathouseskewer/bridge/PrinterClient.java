@@ -53,9 +53,8 @@ final class PrinterClient {
 
     private static String bilingualTable(String raw){
         String s=raw==null?"":raw.trim().toUpperCase();
-        String digits=s.replaceAll("[^0-9]","");
-        if(!digits.isEmpty()) return digits+"桌 / TABLE "+digits;
-        return raw+" / TABLE";
+        if(s.isEmpty()) return "桌号 / TABLE";
+        return s+"桌 / TABLE "+s;
     }
 
     private static String[] bilingualNames(String display,String fallback){
