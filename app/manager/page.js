@@ -75,8 +75,6 @@ export default function Manager() {
   const [tab, setTab] = useState('overview');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
-  const [cooldown, setCooldown] = useState(5);
-  const [rate, setRate] = useState(10);
   const [newItem, setNewItem] = useState({ name: '', display_name: '', description: '', portion_label: '1 skewer', max_per_round: null, sort_order: 100 });
   const [newItemUnlimited, setNewItemUnlimited] = useState(true);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -93,7 +91,7 @@ export default function Manager() {
     const j = await r.json();
     if (r.status === 401) { setAuth(false); return; }
     if (!r.ok) return setError(j.error || 'Unable to load manager data.');
-    setAuth(true); setData(j); setCooldown(j.settings?.skewer_cooldown_minutes ?? 5); setRate(j.settings?.skewer_rate_per_guest ?? 10);
+    setAuth(true); setData(j);
   }
 
   useEffect(() => { load(); }, []);
@@ -121,7 +119,7 @@ export default function Manager() {
       <section className="hero"><h1>Manager Control</h1><p>Skewer ordering, tables, security and performance.</p></section>
       {error && <div className="error" style={{ marginTop: 12 }}>{error}</div>}
       {message && <div className="notice" style={{ marginTop: 12 }}>{message}</div>}
-      <div className="actions" style={{ marginTop: 16 }}>{['overview', 'products', 'tables', 'settings', 'security'].map(x => <button key={x} className={`btn ${tab === x ? 'brand' : 'secondary'}`} onClick={() => { setTab(x); setEditingProduct(null); }}>{x.toUpperCase()}</button>)}</div>
+      <div className="actions" style={{ marginTop: 16 }}>{['overview', 'products', 'tables', 'security'].map(x => <button key={x} className={`btn ${tab === x ? 'brand' : 'secondary'}`} onClick={() => { setTab(x); setEditingProduct(null); }}>{x.toUpperCase()}</button>)}</div>
 
       {tab === 'overview' && <>
         <div className="card" style={{ marginTop: 16 }}><div className="actions"><div className="field"><label>From</label><input type="date" value={from} onChange={e => setFrom(e.target.value)} /></div><div className="field"><label>To</label><input type="date" value={to} onChange={e => setTo(e.target.value)} /></div><button className="btn brand" onClick={() => load(from, to)}>RUN REPORT</button></div></div>
@@ -139,7 +137,6 @@ export default function Manager() {
         <div className="grid grid-3" style={{ marginTop: 14 }}>{data.tables.map(table => <div className="card" key={table.id}><div className="actions"><div><b>{table.name}</b><div className="muted" style={{ fontSize: 12 }}>Capacity {table.capacity}</div></div><span className={`badge ${table.active ? 'available' : ''}`}>{table.active ? 'ACTIVE' : 'HIDDEN'}</span><span className="spacer"/><button className="btn secondary small" onClick={() => editTable(table)}>Edit</button><button className="btn secondary small" onClick={() => act({ type: 'table', action: table.active ? 'disable' : 'restore', table_id: table.id })}>{table.active ? 'Disable' : 'Restore'}</button></div></div>)}</div>
       </>}
 
-      {tab === 'settings' && <div className="card" style={{ marginTop: 16, maxWidth: 620 }}><h2>Ordering Rules</h2><p className="muted">Round limit = diners × skewer rate. Children under 4 are not counted in the diner total.</p><div className="grid grid-2"><div className="field"><label>Skewers per diner / round</label><input type="number" min="1" max="100" value={rate} onChange={e => setRate(Number(e.target.value))} /></div><div className="field"><label>Reorder cooldown (minutes)</label><input type="number" min="0" max="15" value={cooldown} onChange={e => setCooldown(Number(e.target.value))} /></div></div><div className="notice" style={{ marginTop: 12 }}>Example: rate {rate} × 4 diners = {rate * 4} skewers per round.</div><button className="btn brand" style={{ marginTop: 12 }} onClick={() => act({ type: 'settings', skewer_cooldown_minutes: cooldown, skewer_rate_per_guest: rate })}>SAVE SETTINGS</button></div>}
       {tab === 'security' && <div className="grid grid-3" style={{ marginTop: 16 }}>{['staff', 'kitchen', 'manager'].map(role => <PinCard key={role} role={role} act={act} />)}</div>}
     </main>
   </>;
