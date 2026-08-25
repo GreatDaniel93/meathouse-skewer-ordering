@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 
 const NAV = [
   { href: '/manager', label: 'Manager Home', icon: '⌂' },
+  { href: '/manager/skewer-plans', label: 'Skewer Plans', icon: '⚙' },
   { href: '/manager/bridge', label: 'System Health', icon: '♥' },
   { href: '/manager/print', label: 'Print Queue', icon: '▤' },
   { href: '/manager/analytics', label: 'Analytics', icon: '▥' },
