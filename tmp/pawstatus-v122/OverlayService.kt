@@ -24,17 +24,14 @@ import android.telephony.TelephonyManager
 import android.view.Gravity
 import android.view.WindowManager
 
-/**
- * v1.2.2 intentionally returns to the v1.1 service/startup path that was proven
- * to work on the user's Samsung Fold. Only Wi-Fi strength support is added.
- */
+/** Stable v1.1 service path + live battery, Wi-Fi and SIM signal data. */
 class OverlayService : Service() {
 
     companion object {
         const val ACTION_START = "cupertino.status.START"
         const val ACTION_STOP = "cupertino.status.STOP"
         const val ACTION_REFRESH = "cupertino.status.REFRESH"
-        private const val CHANNEL_ID = "paw_status_overlay_v122"
+        private const val CHANNEL_ID = "paw_status_overlay_v13"
         private const val NOTIFICATION_ID = 42
     }
 
@@ -77,7 +74,10 @@ class OverlayService : Service() {
             try {
                 overlayView?.signalLevel = signalStrength.level.coerceIn(0, 4)
                 overlayView?.invalidate()
-            } catch (_: Throwable) { }
+            } catch (_: Throwable) {
+                overlayView?.signalLevel = 0
+                overlayView?.invalidate()
+            }
         }
     }
 
@@ -192,7 +192,9 @@ class OverlayService : Service() {
                 telephony.registerTelephonyCallback(mainExecutor, signalCallback)
                 telephonyCallbackRegistered = true
             } catch (_: Throwable) {
-                overlayView?.signalLevel = 4
+                // Never fake a strong signal: unavailable SIM signal is shown as zero paws.
+                overlayView?.signalLevel = 0
+                overlayView?.invalidate()
             }
         }
     }
@@ -269,7 +271,7 @@ class OverlayService : Service() {
         val notification = android.app.Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_status)
             .setContentTitle("Paw Status 已开启")
-            .setContentText("电量圆环 · Wi-Fi 宠物亮度 · 狗爪手机信号")
+            .setContentText("电量圆环 · Wi-Fi 宠物头像 · SIM 狗爪信号")
             .setContentIntent(openApp)
             .setOngoing(true)
             .build()
