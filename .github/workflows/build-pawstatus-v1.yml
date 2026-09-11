@@ -1,0 +1,44 @@
+name: Build Paw Status v1
+
+on:
+  push:
+    branches: [cupertino-status-build]
+    paths:
+      - 'tmp/pawstatus-v1/**'
+      - '.github/workflows/build-pawstatus-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Reconstruct Paw Status source
+        run: |
+          mkdir -p /tmp/pawstatus
+          base64 -d tmp/pawstatus-v1/source.b64 > /tmp/pawstatus/source.zip
+          unzip -q /tmp/pawstatus/source.zip -d /tmp/pawstatus/src
+          test -f /tmp/pawstatus/src/PawStatusV1/app/build.gradle.kts
+      - name: Build release APK
+        run: gradle -p /tmp/pawstatus/src/PawStatusV1 assembleRelease --stacktrace
+      - name: Verify APK
+        run: |
+          APK=/tmp/pawstatus/src/PawStatusV1/app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          ls -lh "$APK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Paw-Status-Family-v1.0-APK
+          path: /tmp/pawstatus/src/PawStatusV1/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
