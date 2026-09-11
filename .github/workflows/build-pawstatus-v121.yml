@@ -1,0 +1,62 @@
+name: Build Paw Status Family v1.2.1
+
+on:
+  push:
+    branches: [cupertino-status-build]
+    paths:
+      - 'tmp/pawstatus-v121/**'
+      - '.github/workflows/build-pawstatus-v121.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Reconstruct base and apply v1.2.1 stability hotfix
+        run: |
+          mkdir -p /tmp/pawstatus
+          cat \
+            tmp/pawstatus-v11/source.b64 \
+            tmp/pawstatus-v11/part01.b64 \
+            tmp/pawstatus-v11/part02.b64 \
+            tmp/pawstatus-v11/part03.b64 \
+            tmp/pawstatus-v11/part04.b64 \
+            tmp/pawstatus-v11/part05.b64 \
+            tmp/pawstatus-v11/part06.b64 \
+            > /tmp/pawstatus/source.zip.b64
+          test "$(wc -c < /tmp/pawstatus/source.zip.b64)" -eq 62412
+          base64 -d /tmp/pawstatus/source.zip.b64 > /tmp/pawstatus/source.zip
+          unzip -t /tmp/pawstatus/source.zip >/dev/null
+          unzip -q /tmp/pawstatus/source.zip -d /tmp/pawstatus/src
+          PROJECT=/tmp/pawstatus/src/PawStatusV1
+          cp tmp/pawstatus-v12/StatusOverlayView.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/StatusOverlayView.kt"
+          cp tmp/pawstatus-v121/OverlayService.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/OverlayService.kt"
+          cp tmp/pawstatus-v121/MainActivity.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt"
+          cp tmp/pawstatus-v12/AndroidManifest.xml "$PROJECT/app/src/main/AndroidManifest.xml"
+          cp tmp/pawstatus-v12/family_cluster.webp "$PROJECT/app/src/main/res/drawable-nodpi/family_cluster.webp"
+          sed -i -E 's/versionCode = [0-9]+/versionCode = 121/' "$PROJECT/app/build.gradle.kts"
+          sed -i -E 's/versionName = "[^"]+"/versionName = "1.2.1"/' "$PROJECT/app/build.gradle.kts"
+      - name: Build release APK
+        run: gradle -p /tmp/pawstatus/src/PawStatusV1 assembleRelease --stacktrace
+      - name: Verify APK
+        run: |
+          APK=/tmp/pawstatus/src/PawStatusV1/app/build/outputs/apk/release/app-release.apk
+          test -s "$APK"
+          unzip -t "$APK" >/dev/null
+          ls -lh "$APK"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Paw-Status-Family-v1.2.1-APK
+          path: /tmp/pawstatus/src/PawStatusV1/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
