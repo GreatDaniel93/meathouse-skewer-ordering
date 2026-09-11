@@ -26,7 +26,10 @@ jobs:
       - name: Decode source
         run: |
           mkdir -p /tmp/cupertino
-          base64 -d tmp/cupertino-v05/source.zip.b64 > /tmp/cupertino/source.zip
+          cat tmp/cupertino-v05/s00.b64 tmp/cupertino-v05/tail00.b64 tmp/cupertino-v05/part01.b64 tmp/cupertino-v05/part02.b64 tmp/cupertino-v05/part03.b64 > /tmp/cupertino/source.zip.b64
+          test "$(wc -c < /tmp/cupertino/source.zip.b64)" -eq 26368
+          base64 -d /tmp/cupertino/source.zip.b64 > /tmp/cupertino/source.zip
+          unzip -t /tmp/cupertino/source.zip
           unzip -q /tmp/cupertino/source.zip -d /tmp/cupertino/src
       - name: Build release APK
         run: gradle -p /tmp/cupertino/src/CupertinoStatusV05 assembleRelease --stacktrace
