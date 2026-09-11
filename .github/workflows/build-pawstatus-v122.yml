@@ -1,10 +1,11 @@
-name: Build Paw Status Family v1.3.1
+name: Build Paw Status Family v1.5
 
 on:
   push:
     branches: [cupertino-status-build]
     paths:
-      - 'tmp/pawstatus-v122/**'
+      - 'tmp/pawstatus-v15/**'
+      - 'tmp/pawstatus-v122/OverlayService.kt'
       - '.github/workflows/build-pawstatus-v122.yml'
   workflow_dispatch:
 
@@ -23,7 +24,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Reconstruct stable v1.1 base and apply v1.3.1
+      - name: Reconstruct stable base and apply v1.5 master design
         run: |
           mkdir -p /tmp/pawstatus
           cat \
@@ -40,13 +41,24 @@ jobs:
           unzip -t /tmp/pawstatus/source.zip >/dev/null
           unzip -q /tmp/pawstatus/source.zip -d /tmp/pawstatus/src
           PROJECT=/tmp/pawstatus/src/PawStatusV1
-          cp tmp/pawstatus-v122/StatusOverlayView.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/StatusOverlayView.kt"
+
+          base64 -d tmp/pawstatus-v15/package.b64 > /tmp/pawstatus/v15.zip
+          unzip -t /tmp/pawstatus/v15.zip >/dev/null
+          unzip -q /tmp/pawstatus/v15.zip -d /tmp/pawstatus/v15
+
+          cp /tmp/pawstatus/v15/StatusOverlayView.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/StatusOverlayView.kt"
           cp tmp/pawstatus-v122/OverlayService.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/OverlayService.kt"
-          # Keep original tightly-cropped four-pet resource from the stable v1.1 project.
-          sed -i -E 's/versionCode = [0-9]+/versionCode = 131/' "$PROJECT/app/build.gradle.kts"
-          sed -i -E 's/versionName = "[^"]+"/versionName = "1.3.1"/' "$PROJECT/app/build.gradle.kts"
-          sed -i 's/Paw Status · Family Edition v1.1/Paw Status · Family Edition v1.3.1/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt"
-          sed -i 's/圆环显示电量，四只狗爪显示手机信号强度。/圆环显示电量；四个狗爪显示真实 SIM 手机网络信号强度；四只宠物头像按 Wi-Fi 强度 1-4 档依次亮起。/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
+          cp /tmp/pawstatus/v15/drawable-nodpi/pet_cat_orange.webp "$PROJECT/app/src/main/res/drawable-nodpi/pet_cat_orange.webp"
+          cp /tmp/pawstatus/v15/drawable-nodpi/pet_cat_white.webp "$PROJECT/app/src/main/res/drawable-nodpi/pet_cat_white.webp"
+          cp /tmp/pawstatus/v15/drawable-nodpi/pet_dog_brown.webp "$PROJECT/app/src/main/res/drawable-nodpi/pet_dog_brown.webp"
+          cp /tmp/pawstatus/v15/drawable-nodpi/pet_dog_black.webp "$PROJECT/app/src/main/res/drawable-nodpi/pet_dog_black.webp"
+
+          sed -i -E 's/versionCode = [0-9]+/versionCode = 150/' "$PROJECT/app/build.gradle.kts"
+          sed -i -E 's/versionName = "[^"]+"/versionName = "1.5"/' "$PROJECT/app/build.gradle.kts"
+          sed -i 's/Paw Status · Family Edition v1.1/Paw Status · Family Edition v1.5/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt"
+          sed -i 's/不完整圆环显示电量，下面四个狗爪补足圆形并显示手机信号强度。/外圈圆环显示电量；四个爪子显示真实 SIM 手机网络信号；四个独立宠物头像按 Wi-Fi 强度逐档亮起。/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
+          sed -i 's/信号：1–4 个狗爪依次点亮。/SIM 信号：1–4 个爪子按真实手机网络信号依次点亮。/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
+          sed -i 's/中间：固定显示你家的四只小家伙。/中间：四个独立头像按 Wi-Fi 强度逐档亮起。/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
       - name: Build release APK
         run: gradle -p /tmp/pawstatus/src/PawStatusV1 assembleRelease --stacktrace
       - name: Verify APK
@@ -57,6 +69,6 @@ jobs:
           ls -lh "$APK"
       - uses: actions/upload-artifact@v4
         with:
-          name: Paw-Status-Family-v1.3.1-APK
+          name: Paw-Status-Family-v1.5-APK
           path: /tmp/pawstatus/src/PawStatusV1/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
