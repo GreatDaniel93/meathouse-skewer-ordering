@@ -23,20 +23,28 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Reconstruct v0.13 source
+      - name: Reconstruct verified base and apply v0.13 animation
         run: |
-          mkdir -p /tmp/cupertino-v13
-          base64 -d tmp/cupertino-v13/source.b64 > /tmp/cupertino-v13/source.zip
-          unzip -q /tmp/cupertino-v13/source.zip -d /tmp/cupertino-v13/src
+          mkdir -p /tmp/cupertino
+          cat tmp/cupertino-v05/s00.b64 tmp/cupertino-v05/tail00.b64 tmp/cupertino-v05/part01.b64 tmp/cupertino-v05/part02.b64 tmp/cupertino-v05/part03.b64 > /tmp/cupertino/source.zip.b64
+          test "$(wc -c < /tmp/cupertino/source.zip.b64)" -eq 26368
+          base64 -d /tmp/cupertino/source.zip.b64 > /tmp/cupertino/source.zip
+          unzip -q /tmp/cupertino/source.zip -d /tmp/cupertino/src
+          PROJECT=/tmp/cupertino/src/CupertinoStatusV05
+          cp tmp/cupertino-v12/StatusOverlayView.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/StatusOverlayView.kt"
+          cp tmp/cupertino-v13/PageTurnOverlayView.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/PageTurnOverlayView.kt"
+          cp tmp/cupertino-v13/OverlayService.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/OverlayService.kt"
+          sed -i 's/versionCode = 50/versionCode = 130/' "$PROJECT/app/build.gradle.kts"
+          sed -i 's/versionName = "0.5"/versionName = "0.13"/' "$PROJECT/app/build.gradle.kts"
       - name: Build release APK
-        run: gradle -p /tmp/cupertino-v13/src/CupertinoStatusV13 assembleRelease --stacktrace
+        run: gradle -p /tmp/cupertino/src/CupertinoStatusV05 assembleRelease --stacktrace
       - name: Verify APK
         run: |
-          test -s /tmp/cupertino-v13/src/CupertinoStatusV13/app/build/outputs/apk/release/app-release.apk
-          unzip -t /tmp/cupertino-v13/src/CupertinoStatusV13/app/build/outputs/apk/release/app-release.apk >/dev/null
-          ls -lh /tmp/cupertino-v13/src/CupertinoStatusV13/app/build/outputs/apk/release/app-release.apk
+          test -s /tmp/cupertino/src/CupertinoStatusV05/app/build/outputs/apk/release/app-release.apk
+          unzip -t /tmp/cupertino/src/CupertinoStatusV05/app/build/outputs/apk/release/app-release.apk >/dev/null
+          ls -lh /tmp/cupertino/src/CupertinoStatusV05/app/build/outputs/apk/release/app-release.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Cupertino-Status-Duo-v0.13-APK
-          path: /tmp/cupertino-v13/src/CupertinoStatusV13/app/build/outputs/apk/release/app-release.apk
+          path: /tmp/cupertino/src/CupertinoStatusV05/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
