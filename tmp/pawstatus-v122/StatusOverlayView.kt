@@ -17,20 +17,12 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
-/**
- * Paw Status · Family Edition v1.2.3
- *
- * Visual fix:
- * - all four pets stay visibly present even when Wi-Fi is disconnected
- * - Wi-Fi 1..4 progressively restores each pet to full colour/brightness
- * - no Wi-Fi = all pets remain dim/desaturated, not invisible
- * - preserves the v1.2.2 service/startup path that works on the user's Fold
- */
+/** Paw Status · Family Edition v1.3 */
 class StatusOverlayView(context: Context) : View(context) {
 
     var batteryPercent: Int = 100
     var charging: Boolean = false
-    var signalLevel: Int = 4
+    var signalLevel: Int = 0
     var wifiConnected: Boolean = false
     var wifiLevel: Int = 0
     var darkStyle: Boolean = false
@@ -43,24 +35,29 @@ class StatusOverlayView(context: Context) : View(context) {
 
     private val dimFilter by lazy {
         val matrix = ColorMatrix().apply {
-            setSaturation(0.20f)
+            setSaturation(0.05f)
             postConcat(ColorMatrix(floatArrayOf(
-                0.74f,0f,0f,0f,0f,
-                0f,0.74f,0f,0f,0f,
-                0f,0f,0.74f,0f,0f,
+                0.54f,0f,0f,0f,0f,
+                0f,0.54f,0f,0f,0f,
+                0f,0f,0.54f,0f,0f,
                 0f,0f,0f,1f,0f
             )))
         }
         ColorMatrixColorFilter(matrix)
     }
 
+    private val brightFilter by lazy {
+        ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
+            1.08f,0f,0f,0f,4f,
+            0f,1.08f,0f,0f,4f,
+            0f,0f,1.08f,0f,4f,
+            0f,0f,0f,1f,0f
+        )))
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        try {
-            drawStatus(canvas)
-        } catch (_: Throwable) {
-            drawFallback(canvas)
-        }
+        try { drawStatus(canvas) } catch (_: Throwable) { drawFallback(canvas) }
     }
 
     private fun drawStatus(canvas: Canvas) {
@@ -69,99 +66,139 @@ class StatusOverlayView(context: Context) : View(context) {
         val left = (width - side) / 2f
         val top = (height - side) / 2f
         val cx = left + side * 0.50f
-        val cy = top + side * 0.44f
+        val cy = top + side * 0.43f
         val ringRadius = side * 0.355f
-        val ringStroke = max(dp(2.20f), side * 0.053f)
+        val ringStroke = max(dp(2.0f), side * 0.048f)
 
-        val inactive = Color.argb(86, 210, 210, 215)
-        val active = when {
-            charging -> Color.rgb(142, 255, 161)
+        val inactive = Color.argb(88, 194, 199, 210)
+        val batteryActive = when {
+            charging -> Color.rgb(127, 246, 157)
             batteryPercent <= 20 -> Color.rgb(255, 101, 78)
             else -> Color.rgb(255, 193, 112)
         }
+        val signalActive = Color.rgb(118, 248, 157)
+        val wifiActive = Color.rgb(118, 248, 157)
 
-        drawFamily(canvas, left, top, side)
+        drawFamily(canvas, cx, cy, side, wifiActive)
 
         val ringBox = RectF(cx - ringRadius, cy - ringRadius, cx + ringRadius, cy + ringRadius)
         val startAngle = 145f
         val totalSweep = 250f
 
         paint.colorFilter = null
+        paint.alpha = 255
         paint.style = Paint.Style.STROKE
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
         paint.strokeWidth = ringStroke
-        paint.alpha = 255
         paint.color = inactive
         canvas.drawArc(ringBox, startAngle, totalSweep, false, paint)
 
-        paint.color = active
-        canvas.drawArc(ringBox, startAngle, totalSweep * (batteryPercent.coerceIn(0, 100) / 100f), false, paint)
+        paint.color = batteryActive
+        canvas.drawArc(
+            ringBox,
+            startAngle,
+            totalSweep * (batteryPercent.coerceIn(0, 100) / 100f),
+            false,
+            paint
+        )
 
-        val pawAngles = floatArrayOf(58f, 79.33f, 100.67f, 122f)
-        val pawOrbit = ringRadius * 1.015f
-        val pawSize = side * 0.076f
+        // SIM/mobile signal: four paws fill from left to right.
+        val pawAngles = floatArrayOf(122f, 100.7f, 79.3f, 58f)
+        val pawOrbit = ringRadius * 1.025f
+        val pawSize = side * 0.071f
+        val mobileBars = signalLevel.coerceIn(0, 4)
         for (i in 0..3) {
             val a = Math.toRadians(pawAngles[i].toDouble())
             val px = cx + cos(a).toFloat() * pawOrbit
             val py = cy + sin(a).toFloat() * pawOrbit
-            val enabled = i < signalLevel.coerceIn(0, 4)
-            drawPaw(canvas, px, py, pawSize, if (enabled) active else inactive)
+            drawPaw(canvas, px, py, pawSize, if (i < mobileBars) signalActive else inactive)
         }
 
-        if (charging) drawBolt(canvas, cx + ringRadius * 0.58f, cy - ringRadius * 0.90f, side, active)
+        if (charging) drawBolt(canvas, cx + ringRadius * 0.59f, cy - ringRadius * 0.89f, side, batteryActive)
     }
 
-    private fun drawFamily(canvas: Canvas, left: Float, top: Float, side: Float) {
+    private fun drawFamily(canvas: Canvas, cx: Float, cy: Float, side: Float, wifiActive: Int) {
         val bitmap = familyCluster ?: return
         if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return
 
-        val src = Rect(0, 0, bitmap.width, bitmap.height)
-        val dst = RectF(
-            left + side * 0.205f,
-            top + side * 0.125f,
-            left + side * 0.795f,
-            top + side * 0.715f
+        val w = bitmap.width
+        val h = bitmap.height
+        val src = arrayOf(
+            Rect((w * 0.02f).toInt(), 0, (w * 0.52f).toInt(), (h * 0.52f).toInt()),
+            Rect((w * 0.48f).toInt(), 0, w, (h * 0.52f).toInt()),
+            Rect(0, (h * 0.45f).toInt(), (w * 0.53f).toInt(), h),
+            Rect((w * 0.47f).toInt(), (h * 0.45f).toInt(), w, h)
         )
 
-        paint.style = Paint.Style.FILL
-        paint.colorFilter = dimFilter
-        paint.alpha = if (wifiConnected) 128 else 112
-        canvas.drawBitmap(bitmap, src, dst, paint)
+        val avatarRadius = side * 0.122f
+        val dx = side * 0.126f
+        val dy = side * 0.116f
+        val familyCy = cy - side * 0.018f
+        val centers = arrayOf(
+            floatArrayOf(cx - dx, familyCy - dy),
+            floatArrayOf(cx + dx, familyCy - dy),
+            floatArrayOf(cx - dx, familyCy + dy),
+            floatArrayOf(cx + dx, familyCy + dy)
+        )
+        val litCount = if (wifiConnected) wifiLevel.coerceIn(0, 4) else 0
 
-        val lit = if (wifiConnected) wifiLevel.coerceIn(0, 4) else 0
-        if (lit > 0) {
-            val zones = arrayOf(
-                normalizedOval(dst, 0.29f, 0.29f, 0.55f, 0.55f),
-                normalizedOval(dst, 0.71f, 0.29f, 0.55f, 0.55f),
-                normalizedOval(dst, 0.29f, 0.71f, 0.55f, 0.55f),
-                normalizedOval(dst, 0.71f, 0.71f, 0.55f, 0.55f)
+        for (i in 0..3) {
+            drawAvatar(
+                canvas = canvas,
+                bitmap = bitmap,
+                source = src[i],
+                cx = centers[i][0],
+                cy = centers[i][1],
+                radius = avatarRadius,
+                lit = i < litCount,
+                activeColor = wifiActive
             )
+        }
+    }
 
-            paint.colorFilter = null
-            for (i in 0 until lit) {
-                val save = canvas.save()
-                try {
-                    val path = Path().apply { addOval(zones[i], Path.Direction.CW) }
-                    canvas.clipPath(path)
-                    paint.alpha = 255
-                    canvas.drawBitmap(bitmap, src, dst, paint)
-                } finally {
-                    canvas.restoreToCount(save)
-                }
-            }
+    private fun drawAvatar(
+        canvas: Canvas,
+        bitmap: Bitmap,
+        source: Rect,
+        cx: Float,
+        cy: Float,
+        radius: Float,
+        lit: Boolean,
+        activeColor: Int
+    ) {
+        paint.colorFilter = null
+        paint.style = Paint.Style.FILL
+        paint.color = Color.argb(if (lit) 58 else 35, 0, 0, 0)
+        canvas.drawCircle(cx, cy, radius * 1.05f, paint)
+
+        if (lit) {
+            paint.color = Color.argb(46, Color.red(activeColor), Color.green(activeColor), Color.blue(activeColor))
+            canvas.drawCircle(cx, cy, radius * 1.12f, paint)
+        }
+
+        val save = canvas.save()
+        try {
+            canvas.clipPath(Path().apply { addCircle(cx, cy, radius, Path.Direction.CW) })
+            paint.style = Paint.Style.FILL
+            paint.alpha = if (lit) 255 else 150
+            paint.colorFilter = if (lit) brightFilter else dimFilter
+            canvas.drawBitmap(
+                bitmap,
+                source,
+                RectF(cx - radius, cy - radius, cx + radius, cy + radius),
+                paint
+            )
+        } finally {
+            canvas.restoreToCount(save)
         }
 
         paint.colorFilter = null
         paint.alpha = 255
-    }
-
-    private fun normalizedOval(dst: RectF, nx: Float, ny: Float, nw: Float, nh: Float): RectF {
-        val x = dst.left + dst.width() * nx
-        val y = dst.top + dst.height() * ny
-        val hw = dst.width() * nw * 0.5f
-        val hh = dst.height() * nh * 0.5f
-        return RectF(x - hw, y - hh, x + hw, y + hh)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = max(dp(0.75f), radius * 0.085f)
+        paint.color = if (lit) activeColor else Color.argb(105, 181, 187, 198)
+        canvas.drawCircle(cx, cy, radius, paint)
     }
 
     private fun drawPaw(canvas: Canvas, cx: Float, cy: Float, s: Float, color: Int) {
@@ -181,7 +218,7 @@ class StatusOverlayView(context: Context) : View(context) {
     }
 
     private fun drawBolt(canvas: Canvas, cx: Float, cy: Float, side: Float, color: Int) {
-        val s = side * 0.085f
+        val s = side * 0.082f
         val path = Path().apply {
             moveTo(cx + s * 0.06f, cy - s * 0.54f)
             lineTo(cx - s * 0.28f, cy + s * 0.02f)
@@ -203,13 +240,13 @@ class StatusOverlayView(context: Context) : View(context) {
         if (side <= 0f) return
         val cx = width / 2f
         val cy = height / 2f
+        val r = side * 0.32f
         paint.colorFilter = null
+        paint.alpha = 255
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = max(dp(2f), side * 0.05f)
         paint.strokeCap = Paint.Cap.ROUND
         paint.color = Color.rgb(255, 193, 112)
-        paint.alpha = 255
-        val r = side * 0.32f
         canvas.drawArc(RectF(cx-r, cy-r, cx+r, cy+r), 145f, 250f, false, paint)
     }
 
