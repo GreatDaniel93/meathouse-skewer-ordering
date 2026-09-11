@@ -17,7 +17,7 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sin
 
-/** Paw Status · Family Edition v1.3 */
+/** Paw Status · Family Edition v1.3.1 */
 class StatusOverlayView(context: Context) : View(context) {
 
     var batteryPercent: Int = 100
@@ -33,13 +33,14 @@ class StatusOverlayView(context: Context) : View(context) {
         try { BitmapFactory.decodeResource(resources, R.drawable.family_cluster) } catch (_: Throwable) { null }
     }
 
+    // Unlit Wi-Fi avatars stay clearly visible, but become neutral and dim instead of looking empty.
     private val dimFilter by lazy {
         val matrix = ColorMatrix().apply {
-            setSaturation(0.05f)
+            setSaturation(0.08f)
             postConcat(ColorMatrix(floatArrayOf(
-                0.54f,0f,0f,0f,0f,
-                0f,0.54f,0f,0f,0f,
-                0f,0f,0.54f,0f,0f,
+                0.76f,0f,0f,0f,2f,
+                0f,0.76f,0f,0f,2f,
+                0f,0f,0.76f,0f,2f,
                 0f,0f,0f,1f,0f
             )))
         }
@@ -48,9 +49,9 @@ class StatusOverlayView(context: Context) : View(context) {
 
     private val brightFilter by lazy {
         ColorMatrixColorFilter(ColorMatrix(floatArrayOf(
-            1.08f,0f,0f,0f,4f,
-            0f,1.08f,0f,0f,4f,
-            0f,0f,1.08f,0f,4f,
+            1.12f,0f,0f,0f,5f,
+            0f,1.12f,0f,0f,5f,
+            0f,0f,1.12f,0f,5f,
             0f,0f,0f,1f,0f
         )))
     }
@@ -70,7 +71,7 @@ class StatusOverlayView(context: Context) : View(context) {
         val ringRadius = side * 0.355f
         val ringStroke = max(dp(2.0f), side * 0.048f)
 
-        val inactive = Color.argb(88, 194, 199, 210)
+        val inactive = Color.argb(92, 194, 199, 210)
         val batteryActive = when {
             charging -> Color.rgb(127, 246, 157)
             batteryPercent <= 20 -> Color.rgb(255, 101, 78)
@@ -103,10 +104,11 @@ class StatusOverlayView(context: Context) : View(context) {
             paint
         )
 
-        // SIM/mobile signal: four paws fill from left to right.
+        // Real SIM/mobile signal: four paws fill from left to right.
+        // Slightly larger than v1.3 while keeping the Apple-style circular gap composition.
         val pawAngles = floatArrayOf(122f, 100.7f, 79.3f, 58f)
-        val pawOrbit = ringRadius * 1.025f
-        val pawSize = side * 0.071f
+        val pawOrbit = ringRadius * 1.065f
+        val pawSize = side * 0.086f
         val mobileBars = signalLevel.coerceIn(0, 4)
         for (i in 0..3) {
             val a = Math.toRadians(pawAngles[i].toDouble())
@@ -131,10 +133,11 @@ class StatusOverlayView(context: Context) : View(context) {
             Rect((w * 0.47f).toInt(), (h * 0.45f).toInt(), w, h)
         )
 
-        val avatarRadius = side * 0.122f
-        val dx = side * 0.126f
-        val dy = side * 0.116f
-        val familyCy = cy - side * 0.018f
+        // Larger, cleaner 2x2 family grid. Avatars no longer overlap each other.
+        val avatarRadius = side * 0.134f
+        val dx = side * 0.139f
+        val dy = side * 0.139f
+        val familyCy = cy - side * 0.002f
         val centers = arrayOf(
             floatArrayOf(cx - dx, familyCy - dy),
             floatArrayOf(cx + dx, familyCy - dy),
@@ -169,19 +172,21 @@ class StatusOverlayView(context: Context) : View(context) {
     ) {
         paint.colorFilter = null
         paint.style = Paint.Style.FILL
-        paint.color = Color.argb(if (lit) 58 else 35, 0, 0, 0)
-        canvas.drawCircle(cx, cy, radius * 1.05f, paint)
+
+        // Compact dark separation between faces without the heavy green circles from v1.3.
+        paint.color = Color.argb(88, 0, 0, 0)
+        canvas.drawCircle(cx, cy, radius * 1.045f, paint)
 
         if (lit) {
-            paint.color = Color.argb(46, Color.red(activeColor), Color.green(activeColor), Color.blue(activeColor))
-            canvas.drawCircle(cx, cy, radius * 1.12f, paint)
+            paint.color = Color.argb(28, Color.red(activeColor), Color.green(activeColor), Color.blue(activeColor))
+            canvas.drawCircle(cx, cy, radius * 1.075f, paint)
         }
 
         val save = canvas.save()
         try {
             canvas.clipPath(Path().apply { addCircle(cx, cy, radius, Path.Direction.CW) })
             paint.style = Paint.Style.FILL
-            paint.alpha = if (lit) 255 else 150
+            paint.alpha = if (lit) 255 else 225
             paint.colorFilter = if (lit) brightFilter else dimFilter
             canvas.drawBitmap(
                 bitmap,
@@ -196,8 +201,12 @@ class StatusOverlayView(context: Context) : View(context) {
         paint.colorFilter = null
         paint.alpha = 255
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = max(dp(0.75f), radius * 0.085f)
-        paint.color = if (lit) activeColor else Color.argb(105, 181, 187, 198)
+        paint.strokeWidth = max(dp(0.55f), radius * 0.043f)
+        paint.color = if (lit) {
+            Color.argb(185, Color.red(activeColor), Color.green(activeColor), Color.blue(activeColor))
+        } else {
+            Color.argb(95, 184, 190, 201)
+        }
         canvas.drawCircle(cx, cy, radius, paint)
     }
 
