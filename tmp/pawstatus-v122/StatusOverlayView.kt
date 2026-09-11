@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect
@@ -16,12 +18,13 @@ import kotlin.math.min
 import kotlin.math.sin
 
 /**
- * Paw Status · Family Edition v1.2.2
+ * Paw Status · Family Edition v1.2.3
  *
- * Stability-first revision:
- * - preserves the approved v1.1 rendering path that worked on the user's Fold
- * - keeps the v1.2 paw spacing and Wi-Fi 1..4 pet-lighting idea
- * - catches every draw failure so a bad bitmap/render path cannot kill the app process
+ * Visual fix:
+ * - all four pets stay visibly present even when Wi-Fi is disconnected
+ * - Wi-Fi 1..4 progressively restores each pet to full colour/brightness
+ * - no Wi-Fi = all pets remain dim/desaturated, not invisible
+ * - preserves the v1.2.2 service/startup path that works on the user's Fold
  */
 class StatusOverlayView(context: Context) : View(context) {
 
@@ -36,6 +39,19 @@ class StatusOverlayView(context: Context) : View(context) {
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val familyCluster: Bitmap? by lazy {
         try { BitmapFactory.decodeResource(resources, R.drawable.family_cluster) } catch (_: Throwable) { null }
+    }
+
+    private val dimFilter by lazy {
+        val matrix = ColorMatrix().apply {
+            setSaturation(0.20f)
+            postConcat(ColorMatrix(floatArrayOf(
+                0.74f,0f,0f,0f,0f,
+                0f,0.74f,0f,0f,0f,
+                0f,0f,0.74f,0f,0f,
+                0f,0f,0f,1f,0f
+            )))
+        }
+        ColorMatrixColorFilter(matrix)
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -70,6 +86,7 @@ class StatusOverlayView(context: Context) : View(context) {
         val startAngle = 145f
         val totalSweep = 250f
 
+        paint.colorFilter = null
         paint.style = Paint.Style.STROKE
         paint.strokeCap = Paint.Cap.ROUND
         paint.strokeJoin = Paint.Join.ROUND
@@ -101,40 +118,41 @@ class StatusOverlayView(context: Context) : View(context) {
 
         val src = Rect(0, 0, bitmap.width, bitmap.height)
         val dst = RectF(
-            left + side * 0.180f,
-            top + side * 0.105f,
-            left + side * 0.820f,
-            top + side * 0.745f
+            left + side * 0.205f,
+            top + side * 0.125f,
+            left + side * 0.795f,
+            top + side * 0.715f
         )
 
         paint.style = Paint.Style.FILL
-        paint.alpha = if (wifiConnected) 72 else 45
+        paint.colorFilter = dimFilter
+        paint.alpha = if (wifiConnected) 128 else 112
         canvas.drawBitmap(bitmap, src, dst, paint)
 
         val lit = if (wifiConnected) wifiLevel.coerceIn(0, 4) else 0
-        if (lit == 0) {
-            paint.alpha = 255
-            return
-        }
+        if (lit > 0) {
+            val zones = arrayOf(
+                normalizedOval(dst, 0.29f, 0.29f, 0.55f, 0.55f),
+                normalizedOval(dst, 0.71f, 0.29f, 0.55f, 0.55f),
+                normalizedOval(dst, 0.29f, 0.71f, 0.55f, 0.55f),
+                normalizedOval(dst, 0.71f, 0.71f, 0.55f, 0.55f)
+            )
 
-        val zones = arrayOf(
-            normalizedOval(dst, 0.34f, 0.31f, 0.35f, 0.34f),
-            normalizedOval(dst, 0.66f, 0.31f, 0.35f, 0.34f),
-            normalizedOval(dst, 0.34f, 0.68f, 0.35f, 0.37f),
-            normalizedOval(dst, 0.66f, 0.68f, 0.35f, 0.37f)
-        )
-
-        for (i in 0 until lit) {
-            val save = canvas.save()
-            try {
-                val path = Path().apply { addOval(zones[i], Path.Direction.CW) }
-                canvas.clipPath(path)
-                paint.alpha = 255
-                canvas.drawBitmap(bitmap, src, dst, paint)
-            } finally {
-                canvas.restoreToCount(save)
+            paint.colorFilter = null
+            for (i in 0 until lit) {
+                val save = canvas.save()
+                try {
+                    val path = Path().apply { addOval(zones[i], Path.Direction.CW) }
+                    canvas.clipPath(path)
+                    paint.alpha = 255
+                    canvas.drawBitmap(bitmap, src, dst, paint)
+                } finally {
+                    canvas.restoreToCount(save)
+                }
             }
         }
+
+        paint.colorFilter = null
         paint.alpha = 255
     }
 
@@ -147,6 +165,7 @@ class StatusOverlayView(context: Context) : View(context) {
     }
 
     private fun drawPaw(canvas: Canvas, cx: Float, cy: Float, s: Float, color: Int) {
+        paint.colorFilter = null
         paint.style = Paint.Style.FILL
         paint.color = color
         paint.alpha = 255
@@ -172,8 +191,10 @@ class StatusOverlayView(context: Context) : View(context) {
             lineTo(cx + s * 0.08f, cy - s * 0.10f)
             close()
         }
+        paint.colorFilter = null
         paint.style = Paint.Style.FILL
         paint.color = color
+        paint.alpha = 255
         canvas.drawPath(path, paint)
     }
 
@@ -182,6 +203,7 @@ class StatusOverlayView(context: Context) : View(context) {
         if (side <= 0f) return
         val cx = width / 2f
         val cy = height / 2f
+        paint.colorFilter = null
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = max(dp(2f), side * 0.05f)
         paint.strokeCap = Paint.Cap.ROUND
