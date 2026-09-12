@@ -16,11 +16,12 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Paw Status · Family Edition v1.5.2
+ * Paw Status · Family Edition v1.5.3
  *
- * - incomplete battery ring = battery
- * - four transparent pet portraits, no circular portrait containers
- * - portraits light progressively according to Wi‑Fi strength
+ * - incomplete battery ring = real battery percentage
+ * - lightning bolt only appears while physically charging
+ * - four approved transparent illustrated pet portraits, no circle containers
+ * - portraits light progressively according to Wi-Fi strength
  * - four paw prints = real SIM/mobile signal strength
  */
 class StatusOverlayView(context: Context) : View(context) {
@@ -33,7 +34,7 @@ class StatusOverlayView(context: Context) : View(context) {
     var darkStyle: Boolean = false
 
     private val density = resources.displayMetrics.density
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG or Paint.DITHER_FLAG)
 
     private val pets: Array<Bitmap?> by lazy {
         arrayOf(
@@ -44,12 +45,18 @@ class StatusOverlayView(context: Context) : View(context) {
         )
     }
 
+    // Crop away transparent padding so the illustrated heads stay large and clear at status-bar size.
+    private val petSrcRects: Array<Rect?> by lazy {
+        Array(4) { index -> pets[index]?.let { alphaBounds(it) } }
+    }
+
+    // Unlit pets stay recognisable rather than becoming nearly black.
     private val dimFilter by lazy {
-        val saturation = ColorMatrix().apply { setSaturation(0.10f) }
+        val saturation = ColorMatrix().apply { setSaturation(0.32f) }
         val brightness = ColorMatrix(floatArrayOf(
-            0.42f, 0f, 0f, 0f, 0f,
-            0f, 0.42f, 0f, 0f, 0f,
-            0f, 0f, 0.42f, 0f, 0f,
+            0.60f, 0f, 0f, 0f, 0f,
+            0f, 0.60f, 0f, 0f, 0f,
+            0f, 0f, 0.60f, 0f, 0f,
             0f, 0f, 0f, 1f, 0f
         ))
         saturation.postConcat(brightness)
@@ -80,12 +87,7 @@ class StatusOverlayView(context: Context) : View(context) {
         val inactive = Color.rgb(91, 102, 126)
         val inactivePaw = Color.rgb(154, 159, 174)
 
-        val ringBox = RectF(
-            cx - ringRadius,
-            cy - ringRadius,
-            cx + ringRadius,
-            cy + ringRadius
-        )
+        val ringBox = RectF(cx - ringRadius, cy - ringRadius, cx + ringRadius, cy + ringRadius)
         val startAngle = 145f
         val totalSweep = 250f
 
@@ -102,13 +104,13 @@ class StatusOverlayView(context: Context) : View(context) {
         val batteryProgress = batteryPercent.coerceIn(0, 100) / 100f
         canvas.drawArc(ringBox, startAngle, totalSweep * batteryProgress, false, paint)
 
-        // v1.5.2: transparent cut-out portraits only. No circle clipping and no portrait border.
-        val portraitSize = side * 0.245f
+        // Approved no-background portraits. Kept tight and large so they read as four heads, not four squares.
+        val portraitSize = side * 0.270f
         val centers = arrayOf(
-            floatArrayOf(left + side * 0.405f, top + side * 0.345f),
-            floatArrayOf(left + side * 0.595f, top + side * 0.345f),
-            floatArrayOf(left + side * 0.405f, top + side * 0.525f),
-            floatArrayOf(left + side * 0.595f, top + side * 0.525f)
+            floatArrayOf(left + side * 0.410f, top + side * 0.340f),
+            floatArrayOf(left + side * 0.590f, top + side * 0.340f),
+            floatArrayOf(left + side * 0.410f, top + side * 0.530f),
+            floatArrayOf(left + side * 0.590f, top + side * 0.530f)
         )
 
         val litCount = if (wifiConnected) wifiLevel.coerceIn(0, 4) else 0
@@ -120,6 +122,7 @@ class StatusOverlayView(context: Context) : View(context) {
             drawPortrait(
                 canvas = canvas,
                 bitmap = pets[i],
+                src = petSrcRects[i],
                 cx = centers[i][0],
                 cy = centers[i][1],
                 size = portraitSize,
@@ -137,34 +140,68 @@ class StatusOverlayView(context: Context) : View(context) {
             drawPaw(canvas, px, py, pawSize, if (i < bars) active else inactivePaw)
         }
 
-        drawBolt(
-            canvas,
-            cx + ringRadius * 0.72f,
-            cy - ringRadius * 0.82f,
-            side,
-            active
-        )
+        // Important: no charging bolt unless the phone is actually plugged in and charging/full.
+        if (charging) {
+            drawBolt(
+                canvas,
+                cx + ringRadius * 0.72f,
+                cy - ringRadius * 0.82f,
+                side,
+                active
+            )
+        }
     }
 
     private fun drawPortrait(
         canvas: Canvas,
         bitmap: Bitmap?,
+        src: Rect?,
         cx: Float,
         cy: Float,
         size: Float,
         isLit: Boolean
     ) {
         if (bitmap == null || bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return
+        val source = src ?: Rect(0, 0, bitmap.width, bitmap.height)
+        if (source.width() <= 0 || source.height() <= 0) return
 
-        val src = Rect(0, 0, bitmap.width, bitmap.height)
-        val half = size / 2f
-        val dst = RectF(cx - half, cy - half, cx + half, cy + half)
+        val aspect = source.width().toFloat() / source.height().toFloat()
+        val drawW: Float
+        val drawH: Float
+        if (aspect >= 1f) {
+            drawW = size
+            drawH = size / aspect
+        } else {
+            drawH = size
+            drawW = size * aspect
+        }
+        val dst = RectF(cx - drawW / 2f, cy - drawH / 2f, cx + drawW / 2f, cy + drawH / 2f)
 
         paint.style = Paint.Style.FILL
-        paint.alpha = 255
+        paint.alpha = if (isLit) 255 else 235
         paint.colorFilter = if (isLit) null else dimFilter
-        canvas.drawBitmap(bitmap, src, dst, paint)
+        canvas.drawBitmap(bitmap, source, dst, paint)
         paint.colorFilter = null
+        paint.alpha = 255
+    }
+
+    private fun alphaBounds(bitmap: Bitmap): Rect {
+        var minX = bitmap.width
+        var minY = bitmap.height
+        var maxX = -1
+        var maxY = -1
+        for (y in 0 until bitmap.height) {
+            for (x in 0 until bitmap.width) {
+                if (Color.alpha(bitmap.getPixel(x, y)) > 12) {
+                    if (x < minX) minX = x
+                    if (y < minY) minY = y
+                    if (x > maxX) maxX = x
+                    if (y > maxY) maxY = y
+                }
+            }
+        }
+        return if (maxX >= minX && maxY >= minY) Rect(minX, minY, maxX + 1, maxY + 1)
+        else Rect(0, 0, bitmap.width, bitmap.height)
     }
 
     private fun drawPaw(canvas: Canvas, cx: Float, cy: Float, s: Float, color: Int) {
@@ -173,10 +210,7 @@ class StatusOverlayView(context: Context) : View(context) {
         paint.style = Paint.Style.FILL
         paint.color = color
 
-        canvas.drawOval(
-            RectF(cx - s * 0.24f, cy + s * 0.02f, cx + s * 0.24f, cy + s * 0.31f),
-            paint
-        )
+        canvas.drawOval(RectF(cx - s * 0.24f, cy + s * 0.02f, cx + s * 0.24f, cy + s * 0.31f), paint)
         drawToe(canvas, cx - s * 0.29f, cy - s * 0.22f, s * 0.105f, s * 0.145f)
         drawToe(canvas, cx - s * 0.10f, cy - s * 0.32f, s * 0.095f, s * 0.145f)
         drawToe(canvas, cx + s * 0.10f, cy - s * 0.32f, s * 0.095f, s * 0.145f)
