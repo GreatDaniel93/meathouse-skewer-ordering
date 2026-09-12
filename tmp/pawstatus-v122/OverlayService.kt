@@ -14,6 +14,8 @@ import android.graphics.PixelFormat
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiInfo
 import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
@@ -39,12 +41,14 @@ class OverlayService : Service() {
     private var overlayView: StatusOverlayView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
     private var batteryReceiverRegistered = false
-    private var networkCallbackRegistered = false
+    private var wifiCallbackRegistered = false
     private var telephonyCallbackRegistered = false
 
     private val prefs by lazy { getSharedPreferences("paw_status_prefs", MODE_PRIVATE) }
     private val connectivity by lazy { getSystemService(ConnectivityManager::class.java) }
     private val telephony by lazy { getSystemService(TelephonyManager::class.java) }
+
+    private val wifiNetworks = linkedSetOf<Network>()
 
     private fun profilePrefix(): String = if (resources.configuration.screenWidthDp >= 500) "inner_" else "outer_"
     private fun prefInt(name: String, default: Int): Int = prefs.getInt(profilePrefix() + name, default)
@@ -58,7 +62,6 @@ class OverlayService : Service() {
                 val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
                 val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
                 overlayView?.batteryPercent = ((level * 100f) / scale).toInt().coerceIn(0, 100)
-                // Samsung can briefly report FULL after unplugging. Require a real power source as well.
                 overlayView?.charging = plugged != 0 &&
                     (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL)
                 overlayView?.invalidate()
@@ -66,10 +69,39 @@ class OverlayService : Service() {
         }
     }
 
-    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = updateCurrentNetwork()
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = applyWifiCapabilities(caps)
-        override fun onLost(network: Network) = updateCurrentNetwork()
+    /**
+     * v1.5.4: track Wi-Fi itself instead of the phone's default network.
+     * On Samsung the default-network callback may keep the previous Wi-Fi capabilities briefly
+     * while mobile data takes over, which can leave one avatar lit after Wi-Fi is disabled.
+     */
+    private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) {
+            synchronized(wifiNetworks) { wifiNetworks.add(network) }
+            refreshWifiState()
+        }
+
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                synchronized(wifiNetworks) { wifiNetworks.add(network) }
+                applyBestWifiState(network, caps)
+            } else {
+                synchronized(wifiNetworks) { wifiNetworks.remove(network) }
+                refreshWifiState()
+            }
+        }
+
+        override fun onLost(network: Network) {
+            val empty = synchronized(wifiNetworks) {
+                wifiNetworks.remove(network)
+                wifiNetworks.isEmpty()
+            }
+            if (empty) applyWifi(false, 0) else refreshWifiState()
+        }
+
+        override fun onUnavailable() {
+            synchronized(wifiNetworks) { wifiNetworks.clear() }
+            applyWifi(false, 0)
+        }
     }
 
     private val signalCallback = object : TelephonyCallback(), TelephonyCallback.SignalStrengthsListener {
@@ -131,7 +163,7 @@ class OverlayService : Service() {
             overlayView = view
             layoutParams = lp
             registerLiveData()
-            updateCurrentNetwork()
+            refreshWifiState()
         } catch (_: Throwable) {
             overlayView = null
             layoutParams = null
@@ -183,11 +215,17 @@ class OverlayService : Service() {
             } catch (_: Throwable) { }
         }
 
-        if (!networkCallbackRegistered) {
+        if (!wifiCallbackRegistered) {
             try {
-                connectivity.registerDefaultNetworkCallback(networkCallback)
-                networkCallbackRegistered = true
-            } catch (_: Throwable) { }
+                val request = NetworkRequest.Builder()
+                    .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build()
+                connectivity.registerNetworkCallback(request, wifiCallback)
+                wifiCallbackRegistered = true
+            } catch (_: Throwable) {
+                applyWifi(false, 0)
+            }
         }
 
         if (!telephonyCallbackRegistered) {
@@ -201,25 +239,43 @@ class OverlayService : Service() {
         }
     }
 
-    private fun updateCurrentNetwork() {
+    private fun refreshWifiState() {
         try {
-            val network = connectivity.activeNetwork
-            val caps = if (network != null) connectivity.getNetworkCapabilities(network) else null
-            if (caps == null) applyWifi(false, 0) else applyWifiCapabilities(caps)
+            val candidates = mutableListOf<Pair<Network, NetworkCapabilities>>()
+            for (network in connectivity.allNetworks) {
+                val caps = connectivity.getNetworkCapabilities(network) ?: continue
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
+                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
+                candidates += network to caps
+            }
+
+            synchronized(wifiNetworks) {
+                wifiNetworks.clear()
+                candidates.forEach { wifiNetworks.add(it.first) }
+            }
+
+            if (candidates.isEmpty()) {
+                applyWifi(false, 0)
+                return
+            }
+
+            val best = candidates.maxByOrNull { wifiRssi(it.second) } ?: candidates.first()
+            applyBestWifiState(best.first, best.second)
         } catch (_: Throwable) {
+            synchronized(wifiNetworks) { wifiNetworks.clear() }
             applyWifi(false, 0)
         }
     }
 
-    private fun applyWifiCapabilities(caps: NetworkCapabilities) {
+    private fun applyBestWifiState(network: Network, caps: NetworkCapabilities) {
         try {
             if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                applyWifi(false, 0)
+                synchronized(wifiNetworks) { wifiNetworks.remove(network) }
+                refreshWifiState()
                 return
             }
-            val rssi = caps.signalStrength
+            val rssi = wifiRssi(caps)
             val level = when {
-                rssi == NetworkCapabilities.SIGNAL_STRENGTH_UNSPECIFIED -> 1
                 rssi >= -55 -> 4
                 rssi >= -67 -> 3
                 rssi >= -75 -> 2
@@ -227,7 +283,23 @@ class OverlayService : Service() {
             }
             applyWifi(true, level)
         } catch (_: Throwable) {
-            applyWifi(true, 1)
+            refreshWifiState()
+        }
+    }
+
+    private fun wifiRssi(caps: NetworkCapabilities): Int {
+        return try {
+            val info = caps.transportInfo as? WifiInfo
+            val fromInfo = info?.rssi ?: Int.MIN_VALUE
+            if (fromInfo != Int.MIN_VALUE && fromInfo != WifiInfo.INVALID_RSSI) {
+                fromInfo
+            } else {
+                val fromCaps = caps.signalStrength
+                if (fromCaps == NetworkCapabilities.SIGNAL_STRENGTH_UNSPECIFIED) -80 else fromCaps
+            }
+        } catch (_: Throwable) {
+            val fromCaps = caps.signalStrength
+            if (fromCaps == NetworkCapabilities.SIGNAL_STRENGTH_UNSPECIFIED) -80 else fromCaps
         }
     }
 
@@ -245,10 +317,11 @@ class OverlayService : Service() {
             try { unregisterReceiver(batteryReceiver) } catch (_: Throwable) { }
             batteryReceiverRegistered = false
         }
-        if (networkCallbackRegistered) {
-            try { connectivity.unregisterNetworkCallback(networkCallback) } catch (_: Throwable) { }
-            networkCallbackRegistered = false
+        if (wifiCallbackRegistered) {
+            try { connectivity.unregisterNetworkCallback(wifiCallback) } catch (_: Throwable) { }
+            wifiCallbackRegistered = false
         }
+        synchronized(wifiNetworks) { wifiNetworks.clear() }
         if (telephonyCallbackRegistered) {
             try { telephony.unregisterTelephonyCallback(signalCallback) } catch (_: Throwable) { }
             telephonyCallbackRegistered = false
