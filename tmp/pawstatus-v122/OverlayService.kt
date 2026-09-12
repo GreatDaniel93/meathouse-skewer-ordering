@@ -24,7 +24,7 @@ import android.telephony.TelephonyManager
 import android.view.Gravity
 import android.view.WindowManager
 
-/** Stable v1.1 service path + live battery, Wi-Fi and SIM signal data. */
+/** Stable service path + live battery, Wi-Fi and SIM signal data. */
 class OverlayService : Service() {
 
     companion object {
@@ -56,8 +56,11 @@ class OverlayService : Service() {
                 val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, 0)
                 val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
                 val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
+                val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
                 overlayView?.batteryPercent = ((level * 100f) / scale).toInt().coerceIn(0, 100)
-                overlayView?.charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+                // Samsung can briefly report FULL after unplugging. Require a real power source as well.
+                overlayView?.charging = plugged != 0 &&
+                    (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL)
                 overlayView?.invalidate()
             } catch (_: Throwable) { }
         }
@@ -192,7 +195,6 @@ class OverlayService : Service() {
                 telephony.registerTelephonyCallback(mainExecutor, signalCallback)
                 telephonyCallbackRegistered = true
             } catch (_: Throwable) {
-                // Never fake a strong signal: unavailable SIM signal is shown as zero paws.
                 overlayView?.signalLevel = 0
                 overlayView?.invalidate()
             }
