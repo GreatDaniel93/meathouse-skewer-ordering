@@ -16,13 +16,12 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Paw Status · Family Edition v1.5
+ * Paw Status · Family Edition v1.5.2
  *
- * Sole visual reference: the approved Paw Status · Family master artwork.
- * - incomplete battery ring around the upper/side area
- * - four separate pet portraits in a compact 2x2 family cluster
- * - four paw prints below the portraits = real SIM/mobile signal strength
- * - pet portraits light progressively according to Wi‑Fi strength
+ * - incomplete battery ring = battery
+ * - four transparent pet portraits, no circular portrait containers
+ * - portraits light progressively according to Wi‑Fi strength
+ * - four paw prints = real SIM/mobile signal strength
  */
 class StatusOverlayView(context: Context) : View(context) {
 
@@ -46,11 +45,11 @@ class StatusOverlayView(context: Context) : View(context) {
     }
 
     private val dimFilter by lazy {
-        val saturation = ColorMatrix().apply { setSaturation(0.12f) }
+        val saturation = ColorMatrix().apply { setSaturation(0.10f) }
         val brightness = ColorMatrix(floatArrayOf(
-            0.46f, 0f, 0f, 0f, 0f,
-            0f, 0.46f, 0f, 0f, 0f,
-            0f, 0f, 0.46f, 0f, 0f,
+            0.42f, 0f, 0f, 0f, 0f,
+            0f, 0.42f, 0f, 0f, 0f,
+            0f, 0f, 0.42f, 0f, 0f,
             0f, 0f, 0f, 1f, 0f
         ))
         saturation.postConcat(brightness)
@@ -103,25 +102,27 @@ class StatusOverlayView(context: Context) : View(context) {
         val batteryProgress = batteryPercent.coerceIn(0, 100) / 100f
         canvas.drawArc(ringBox, startAngle, totalSweep * batteryProgress, false, paint)
 
-        val avatarRadius = side * 0.115f
+        // v1.5.2: transparent cut-out portraits only. No circle clipping and no portrait border.
+        val portraitSize = side * 0.245f
         val centers = arrayOf(
-            floatArrayOf(left + side * 0.395f, top + side * 0.335f),
-            floatArrayOf(left + side * 0.605f, top + side * 0.335f),
-            floatArrayOf(left + side * 0.395f, top + side * 0.535f),
-            floatArrayOf(left + side * 0.605f, top + side * 0.535f)
+            floatArrayOf(left + side * 0.405f, top + side * 0.345f),
+            floatArrayOf(left + side * 0.595f, top + side * 0.345f),
+            floatArrayOf(left + side * 0.405f, top + side * 0.525f),
+            floatArrayOf(left + side * 0.595f, top + side * 0.525f)
         )
+
         val litCount = if (wifiConnected) wifiLevel.coerceIn(0, 4) else 0
         val order = intArrayOf(0, 2, 1, 3)
         val lit = BooleanArray(4)
         for (i in 0 until litCount) lit[order[i]] = true
 
         for (i in 0..3) {
-            drawAvatar(
+            drawPortrait(
                 canvas = canvas,
                 bitmap = pets[i],
                 cx = centers[i][0],
                 cy = centers[i][1],
-                radius = avatarRadius,
+                size = portraitSize,
                 isLit = lit[i]
             )
         }
@@ -145,42 +146,25 @@ class StatusOverlayView(context: Context) : View(context) {
         )
     }
 
-    private fun drawAvatar(
+    private fun drawPortrait(
         canvas: Canvas,
         bitmap: Bitmap?,
         cx: Float,
         cy: Float,
-        radius: Float,
+        size: Float,
         isLit: Boolean
     ) {
         if (bitmap == null || bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return
 
-        val save = canvas.save()
-        try {
-            val clip = Path().apply { addCircle(cx, cy, radius, Path.Direction.CW) }
-            canvas.clipPath(clip)
+        val src = Rect(0, 0, bitmap.width, bitmap.height)
+        val half = size / 2f
+        val dst = RectF(cx - half, cy - half, cx + half, cy + half)
 
-            val srcSize = min(bitmap.width, bitmap.height)
-            val srcLeft = (bitmap.width - srcSize) / 2
-            val srcTop = (bitmap.height - srcSize) / 2
-            val src = Rect(srcLeft, srcTop, srcLeft + srcSize, srcTop + srcSize)
-            val dst = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
-
-            paint.style = Paint.Style.FILL
-            paint.alpha = 255
-            paint.colorFilter = if (isLit) null else dimFilter
-            canvas.drawBitmap(bitmap, src, dst, paint)
-        } finally {
-            canvas.restoreToCount(save)
-        }
-
-        paint.colorFilter = null
-        paint.alpha = if (isLit) 72 else 40
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = max(dp(0.55f), radius * 0.035f)
-        paint.color = if (isLit) Color.WHITE else Color.rgb(160, 166, 178)
-        canvas.drawCircle(cx, cy, radius, paint)
+        paint.style = Paint.Style.FILL
         paint.alpha = 255
+        paint.colorFilter = if (isLit) null else dimFilter
+        canvas.drawBitmap(bitmap, src, dst, paint)
+        paint.colorFilter = null
     }
 
     private fun drawPaw(canvas: Canvas, cx: Float, cy: Float, s: Float, color: Int) {
