@@ -1,4 +1,4 @@
-name: Build Paw Status Family v1.5.2
+name: Build Paw Status Family v1.5.3
 
 on:
   push:
@@ -24,7 +24,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
-      - name: Reconstruct stable base and apply v1.5.2 transparent portraits
+      - name: Reconstruct stable base and apply v1.5.3 approved portraits
         run: |
           mkdir -p /tmp/pawstatus
           cat \
@@ -45,22 +45,22 @@ jobs:
           cp tmp/pawstatus-v15/StatusOverlayView.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/StatusOverlayView.kt"
           cp tmp/pawstatus-v122/OverlayService.kt "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/OverlayService.kt"
 
-          base64 -d tmp/pawstatus-v15/assets/pet_cat_orange.webp.b64 > "$PROJECT/app/src/main/res/drawable-nodpi/pet_cat_orange.webp"
-          base64 -d tmp/pawstatus-v15/assets/pet_cat_white.webp.b64 > "$PROJECT/app/src/main/res/drawable-nodpi/pet_cat_white.webp"
-          base64 -d tmp/pawstatus-v15/assets/pet_dog_brown.webp.b64 > "$PROJECT/app/src/main/res/drawable-nodpi/pet_dog_brown.webp"
-          base64 -d tmp/pawstatus-v15/assets/pet_dog_black.webp.b64 > "$PROJECT/app/src/main/res/drawable-nodpi/pet_dog_black.webp"
+          # IMPORTANT: use the approved no-background illustrated portraits, not the older assets/ set.
+          base64 -d tmp/pawstatus-v15/pet_cat_orange.b64 > "$PROJECT/app/src/main/res/drawable-nodpi/pet_cat_orange.webp"
+          base64 -d tmp/pawstatus-v15/pet_cat_white.b64 > "$PROJECT/app/src/main/res/drawable-nodpi/pet_cat_white.webp"
+          base64 -d tmp/pawstatus-v15/pet_dog_brown_tiny.b64 > "$PROJECT/app/src/main/res/drawable-nodpi/pet_dog_brown.webp"
+          base64 -d tmp/pawstatus-v15/pet_dog_black_tiny.b64 > "$PROJECT/app/src/main/res/drawable-nodpi/pet_dog_black.webp"
           test -s "$PROJECT/app/src/main/res/drawable-nodpi/pet_cat_orange.webp"
           test -s "$PROJECT/app/src/main/res/drawable-nodpi/pet_cat_white.webp"
           test -s "$PROJECT/app/src/main/res/drawable-nodpi/pet_dog_brown.webp"
           test -s "$PROJECT/app/src/main/res/drawable-nodpi/pet_dog_black.webp"
 
-          sed -i -E 's/versionCode = [0-9]+/versionCode = 152/' "$PROJECT/app/build.gradle.kts"
-          sed -i -E 's/versionName = "[^"]+"/versionName = "1.5.2"/' "$PROJECT/app/build.gradle.kts"
-          sed -i 's/Paw Status · Family Edition v1.1/Paw Status · Family Edition v1.5.2/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt"
-          sed -i 's/Paw Status · Family Edition v1.5.1/Paw Status · Family Edition v1.5.2/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
-          sed -i 's/不完整圆环显示电量，下面四个狗爪补足圆形并显示手机信号强度。/外圈圆环显示电量；四个爪子显示真实 SIM 手机网络信号；四个无背景独立宠物头像按 Wi-Fi 强度逐档亮起。/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
-          sed -i 's/信号：1–4 个狗爪依次点亮。/SIM 信号：1–4 个爪子按真实手机网络信号依次点亮。/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
-          sed -i 's/中间：固定显示你家的四只小家伙。/中间：四个无背景独立头像按 Wi-Fi 强度逐档亮起。/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
+          sed -i -E 's/versionCode = [0-9]+/versionCode = 153/' "$PROJECT/app/build.gradle.kts"
+          sed -i -E 's/versionName = "[^"]+"/versionName = "1.5.3"/' "$PROJECT/app/build.gradle.kts"
+          sed -i 's/Paw Status · Family Edition v1.1/Paw Status · Family Edition v1.5.3/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt"
+          sed -i 's/Paw Status · Family Edition v1.5.1/Paw Status · Family Edition v1.5.3/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
+          sed -i 's/Paw Status · Family Edition v1.5.2/Paw Status · Family Edition v1.5.3/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
+          sed -i 's/不完整圆环显示电量，下面四个狗爪补足圆形并显示手机信号强度。/外圈圆环显示真实电量；仅充电时显示闪电；四个爪子显示真实 SIM 手机网络信号；四个无背景统一风格宠物头像按 Wi-Fi 强度逐档亮起。/g' "$PROJECT/app/src/main/java/com/daniel/cupertinoStatus/MainActivity.kt" || true
       - name: Build release APK
         run: gradle -p /tmp/pawstatus/src/PawStatusV1 assembleRelease --stacktrace
       - name: Verify APK
@@ -71,6 +71,6 @@ jobs:
           ls -lh "$APK"
       - uses: actions/upload-artifact@v4
         with:
-          name: Paw-Status-Family-v1.5.2-APK
+          name: Paw-Status-Family-v1.5.3-APK
           path: /tmp/pawstatus/src/PawStatusV1/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
