@@ -296,7 +296,7 @@ class OverlayService : Service() {
         return try {
             val info = caps.transportInfo as? WifiInfo
             val fromInfo = info?.rssi ?: Int.MIN_VALUE
-            if (fromInfo != Int.MIN_VALUE && fromInfo != WifiInfo.INVALID_RSSI) {
+            if (fromInfo in -126..0) {
                 fromInfo
             } else {
                 val fromCaps = caps.signalStrength
