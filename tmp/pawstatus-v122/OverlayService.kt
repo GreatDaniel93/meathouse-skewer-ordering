@@ -18,7 +18,9 @@ import android.net.NetworkRequest
 import android.net.wifi.WifiInfo
 import android.os.BatteryManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.provider.Settings
 import android.telephony.SignalStrength
 import android.telephony.TelephonyCallback
@@ -35,6 +37,7 @@ class OverlayService : Service() {
         const val ACTION_REFRESH = "cupertino.status.REFRESH"
         private const val CHANNEL_ID = "paw_status_overlay_v13"
         private const val NOTIFICATION_ID = 42
+        private const val WIFI_REFRESH_MS = 1200L
     }
 
     private lateinit var windowManager: WindowManager
@@ -47,8 +50,16 @@ class OverlayService : Service() {
     private val prefs by lazy { getSharedPreferences("paw_status_prefs", MODE_PRIVATE) }
     private val connectivity by lazy { getSystemService(ConnectivityManager::class.java) }
     private val telephony by lazy { getSystemService(TelephonyManager::class.java) }
+    private val mainHandler by lazy { Handler(Looper.getMainLooper()) }
 
-    private val wifiNetworks = linkedSetOf<Network>()
+    private var wifiRefreshRunning = false
+    private val wifiRefreshRunnable = object : Runnable {
+        override fun run() {
+            if (!wifiRefreshRunning || overlayView == null) return
+            refreshWifiStateNow()
+            mainHandler.postDelayed(this, WIFI_REFRESH_MS)
+        }
+    }
 
     private fun profilePrefix(): String = if (resources.configuration.screenWidthDp >= 500) "inner_" else "outer_"
     private fun prefInt(name: String, default: Int): Int = prefs.getInt(profilePrefix() + name, default)
@@ -61,56 +72,34 @@ class OverlayService : Service() {
                 val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100).coerceAtLeast(1)
                 val status = intent.getIntExtra(BatteryManager.EXTRA_STATUS, -1)
                 val plugged = intent.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0)
-                overlayView?.batteryPercent = ((level * 100f) / scale).toInt().coerceIn(0, 100)
-                overlayView?.charging = plugged != 0 &&
+                val percent = ((level * 100f) / scale).toInt().coerceIn(0, 100)
+                val isCharging = plugged != 0 &&
                     (status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL)
-                overlayView?.invalidate()
+                mainHandler.post {
+                    overlayView?.batteryPercent = percent
+                    overlayView?.charging = isCharging
+                    overlayView?.invalidate()
+                }
             } catch (_: Throwable) { }
         }
     }
 
     /**
-     * v1.5.4: track Wi-Fi itself instead of the phone's default network.
-     * On Samsung the default-network callback may keep the previous Wi-Fi capabilities briefly
-     * while mobile data takes over, which can leave one avatar lit after Wi-Fi is disabled.
+     * Network callbacks give an immediate refresh, while the lightweight 1.2 s poll below
+     * keeps RSSI changes moving even when Samsung does not emit capability updates in background.
      */
     private val wifiCallback = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) {
-            synchronized(wifiNetworks) { wifiNetworks.add(network) }
-            refreshWifiState()
-        }
-
-        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-            if (caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                synchronized(wifiNetworks) { wifiNetworks.add(network) }
-                applyBestWifiState(network, caps)
-            } else {
-                synchronized(wifiNetworks) { wifiNetworks.remove(network) }
-                refreshWifiState()
-            }
-        }
-
-        override fun onLost(network: Network) {
-            val empty = synchronized(wifiNetworks) {
-                wifiNetworks.remove(network)
-                wifiNetworks.isEmpty()
-            }
-            if (empty) applyWifi(false, 0) else refreshWifiState()
-        }
-
-        override fun onUnavailable() {
-            synchronized(wifiNetworks) { wifiNetworks.clear() }
-            applyWifi(false, 0)
-        }
+        override fun onAvailable(network: Network) = scheduleWifiRefresh()
+        override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) = scheduleWifiRefresh()
+        override fun onLost(network: Network) = scheduleWifiRefresh()
+        override fun onUnavailable() = scheduleWifiRefresh()
     }
 
     private val signalCallback = object : TelephonyCallback(), TelephonyCallback.SignalStrengthsListener {
         override fun onSignalStrengthsChanged(signalStrength: SignalStrength) {
-            try {
-                overlayView?.signalLevel = signalStrength.level.coerceIn(0, 4)
-                overlayView?.invalidate()
-            } catch (_: Throwable) {
-                overlayView?.signalLevel = 0
+            val level = try { signalStrength.level.coerceIn(0, 4) } catch (_: Throwable) { 0 }
+            mainHandler.post {
+                overlayView?.signalLevel = level
                 overlayView?.invalidate()
             }
         }
@@ -131,7 +120,13 @@ class OverlayService : Service() {
                 stopSelf()
                 return START_NOT_STICKY
             }
-            ACTION_REFRESH -> if (overlayView == null) showOverlay() else refreshLayout()
+            ACTION_REFRESH -> {
+                if (overlayView == null) showOverlay() else {
+                    refreshLayout()
+                    scheduleWifiRefresh()
+                    startWifiRefreshLoop()
+                }
+            }
             else -> showOverlay()
         }
         return START_STICKY
@@ -140,6 +135,7 @@ class OverlayService : Service() {
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         refreshLayout()
+        scheduleWifiRefresh()
     }
 
     override fun onDestroy() {
@@ -153,6 +149,8 @@ class OverlayService : Service() {
         if (!Settings.canDrawOverlays(this)) return
         if (overlayView != null) {
             refreshLayout()
+            scheduleWifiRefresh()
+            startWifiRefreshLoop()
             return
         }
 
@@ -163,7 +161,8 @@ class OverlayService : Service() {
             overlayView = view
             layoutParams = lp
             registerLiveData()
-            refreshWifiState()
+            scheduleWifiRefresh()
+            startWifiRefreshLoop()
         } catch (_: Throwable) {
             overlayView = null
             layoutParams = null
@@ -219,7 +218,6 @@ class OverlayService : Service() {
             try {
                 val request = NetworkRequest.Builder()
                     .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
-                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
                     .build()
                 connectivity.registerNetworkCallback(request, wifiCallback)
                 wifiCallbackRegistered = true
@@ -233,57 +231,64 @@ class OverlayService : Service() {
                 telephony.registerTelephonyCallback(mainExecutor, signalCallback)
                 telephonyCallbackRegistered = true
             } catch (_: Throwable) {
-                overlayView?.signalLevel = 0
-                overlayView?.invalidate()
+                mainHandler.post {
+                    overlayView?.signalLevel = 0
+                    overlayView?.invalidate()
+                }
             }
         }
     }
 
-    private fun refreshWifiState() {
+    private fun scheduleWifiRefresh() {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            refreshWifiStateNow()
+        } else {
+            mainHandler.post { refreshWifiStateNow() }
+        }
+    }
+
+    private fun startWifiRefreshLoop() {
+        if (wifiRefreshRunning) return
+        wifiRefreshRunning = true
+        mainHandler.removeCallbacks(wifiRefreshRunnable)
+        mainHandler.post(wifiRefreshRunnable)
+    }
+
+    private fun stopWifiRefreshLoop() {
+        wifiRefreshRunning = false
+        mainHandler.removeCallbacks(wifiRefreshRunnable)
+    }
+
+    private fun refreshWifiStateNow() {
+        if (overlayView == null) return
         try {
-            val candidates = mutableListOf<Pair<Network, NetworkCapabilities>>()
+            var bestCaps: NetworkCapabilities? = null
+            var bestRssi = Int.MIN_VALUE
+
             for (network in connectivity.allNetworks) {
                 val caps = connectivity.getNetworkCapabilities(network) ?: continue
                 if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) continue
-                if (!caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)) continue
-                candidates += network to caps
+                val rssi = wifiRssi(caps)
+                if (bestCaps == null || rssi > bestRssi) {
+                    bestCaps = caps
+                    bestRssi = rssi
+                }
             }
 
-            synchronized(wifiNetworks) {
-                wifiNetworks.clear()
-                candidates.forEach { wifiNetworks.add(it.first) }
-            }
-
-            if (candidates.isEmpty()) {
+            if (bestCaps == null) {
                 applyWifi(false, 0)
                 return
             }
 
-            val best = candidates.maxByOrNull { wifiRssi(it.second) } ?: candidates.first()
-            applyBestWifiState(best.first, best.second)
-        } catch (_: Throwable) {
-            synchronized(wifiNetworks) { wifiNetworks.clear() }
-            applyWifi(false, 0)
-        }
-    }
-
-    private fun applyBestWifiState(network: Network, caps: NetworkCapabilities) {
-        try {
-            if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
-                synchronized(wifiNetworks) { wifiNetworks.remove(network) }
-                refreshWifiState()
-                return
-            }
-            val rssi = wifiRssi(caps)
             val level = when {
-                rssi >= -55 -> 4
-                rssi >= -67 -> 3
-                rssi >= -75 -> 2
+                bestRssi >= -55 -> 4
+                bestRssi >= -67 -> 3
+                bestRssi >= -75 -> 2
                 else -> 1
             }
             applyWifi(true, level)
         } catch (_: Throwable) {
-            refreshWifiState()
+            applyWifi(false, 0)
         }
     }
 
@@ -304,12 +309,16 @@ class OverlayService : Service() {
     }
 
     private fun applyWifi(connected: Boolean, level: Int) {
-        overlayView?.wifiConnected = connected
-        overlayView?.wifiLevel = if (connected) level.coerceIn(1, 4) else 0
-        overlayView?.invalidate()
+        val safeLevel = if (connected) level.coerceIn(1, 4) else 0
+        val view = overlayView ?: return
+        if (view.wifiConnected == connected && view.wifiLevel == safeLevel) return
+        view.wifiConnected = connected
+        view.wifiLevel = safeLevel
+        view.invalidate()
     }
 
     private fun removeOverlay() {
+        stopWifiRefreshLoop()
         overlayView?.let { try { windowManager.removeView(it) } catch (_: Throwable) { } }
         overlayView = null
         layoutParams = null
@@ -321,7 +330,6 @@ class OverlayService : Service() {
             try { connectivity.unregisterNetworkCallback(wifiCallback) } catch (_: Throwable) { }
             wifiCallbackRegistered = false
         }
-        synchronized(wifiNetworks) { wifiNetworks.clear() }
         if (telephonyCallbackRegistered) {
             try { telephony.unregisterTelephonyCallback(signalCallback) } catch (_: Throwable) { }
             telephonyCallbackRegistered = false
